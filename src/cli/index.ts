@@ -110,6 +110,10 @@ async function printStackInventory(): Promise<void> {
   console.log(`Root: ${repoScan.root}`);
   console.log("");
   console.log(`Tags: ${repoScan.tags.join(", ") || "none"}`);
+  console.log(`Probable architecture: ${repoScan.probableArchitecture}`);
+  console.log(
+    `Detected dependencies: ${repoScan.detectedDependencies.join(", ") || "none"}`
+  );
   console.log("");
 
   if (repoScan.signals.length === 0) {
@@ -133,6 +137,7 @@ async function runReviewersCommand(): Promise<void> {
   console.log("");
   console.log(`Root: ${repoScan.root}`);
   console.log(`Tags: ${repoScan.tags.join(", ") || "none"}`);
+  console.log(`Probable architecture: ${repoScan.probableArchitecture}`);
   console.log(`Applicable reviewers: ${reports.length}`);
   console.log("");
 

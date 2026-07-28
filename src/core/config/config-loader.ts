@@ -27,6 +27,7 @@ export async function loadNixConfig(
       parsed.defaultArchitecture ?? defaultNixConfig.defaultArchitecture,
     reviewerSources: parsed.reviewerSources ?? defaultNixConfig.reviewerSources,
     scanRoots: parsed.scanRoots ?? defaultNixConfig.scanRoots,
+    ...(parsed.architectureHints ? { architectureHints: parsed.architectureHints } : {}),
     ...(parsed.preferredTestRoot
       ? { preferredTestRoot: parsed.preferredTestRoot }
       : {})

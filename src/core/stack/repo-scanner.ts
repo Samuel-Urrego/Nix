@@ -10,6 +10,8 @@ export interface RepoScanResult {
   readonly root: string;
   readonly signals: ReadonlyArray<StackSignal>;
   readonly tags: ReadonlyArray<string>;
+  readonly detectedDependencies: ReadonlyArray<string>;
+  readonly probableArchitecture: string;
 }
 
 const SIGNAL_CANDIDATES: ReadonlyArray<{
@@ -35,6 +37,7 @@ export async function scanRepository(
 ): Promise<RepoScanResult> {
   const signals: StackSignal[] = [];
   const tags = new Set<string>();
+  const detectedDependencies = new Set<string>();
   const files = await collectFiles(rootDirectory, 3);
 
   for (const filePath of files) {
@@ -67,12 +70,15 @@ export async function scanRepository(
     }
   }
 
-  await enrichTagsFromContent(rootDirectory, files, tags, signals);
+  await enrichTagsFromContent(rootDirectory, files, tags, signals, detectedDependencies);
+  const probableArchitecture = inferProbableArchitecture(tags, signals, files);
 
   return {
     root: rootDirectory,
     signals: dedupeSignals(signals),
-    tags: [...tags].sort()
+    tags: [...tags].sort(),
+    detectedDependencies: [...detectedDependencies].sort(),
+    probableArchitecture
   };
 }
 
@@ -119,7 +125,8 @@ async function enrichTagsFromContent(
   rootDirectory: string,
   files: ReadonlyArray<string>,
   tags: Set<string>,
-  signals: StackSignal[]
+  signals: StackSignal[],
+  detectedDependencies: Set<string>
 ): Promise<void> {
   for (const filePath of files) {
     const fileName = path.basename(filePath);
@@ -134,6 +141,7 @@ async function enrichTagsFromContent(
       if (raw.includes("\"react\"")) {
         tags.add("react");
         tags.add("frontend");
+        detectedDependencies.add("react");
         signals.push({
           name: "React dependency",
           evidence: path.relative(rootDirectory, filePath)
@@ -143,10 +151,17 @@ async function enrichTagsFromContent(
       if (raw.includes("\"astro\"")) {
         tags.add("astro");
         tags.add("frontend");
+        detectedDependencies.add("astro");
       }
 
       if (raw.includes("tailwind")) {
         tags.add("tailwind");
+        detectedDependencies.add("tailwindcss");
+      }
+
+      if (raw.includes("\"vite\"")) {
+        tags.add("vite");
+        detectedDependencies.add("vite");
       }
     }
 
@@ -160,14 +175,44 @@ async function enrichTagsFromContent(
       if (raw.toLowerCase().includes("fastapi")) {
         tags.add("fastapi");
         tags.add("backend");
+        detectedDependencies.add("fastapi");
         signals.push({
           name: "FastAPI dependency",
           evidence: path.relative(rootDirectory, filePath)
         });
       }
 
+      if (raw.toLowerCase().includes("pydantic")) {
+        detectedDependencies.add("pydantic");
+      }
+
+      if (raw.toLowerCase().includes("pytest")) {
+        detectedDependencies.add("pytest");
+      }
+
+      if (raw.toLowerCase().includes("ruff")) {
+        detectedDependencies.add("ruff");
+      }
+
+      if (raw.toLowerCase().includes("mypy")) {
+        detectedDependencies.add("mypy");
+      }
+
+      if (raw.toLowerCase().includes("typer")) {
+        detectedDependencies.add("typer");
+      }
+
       if (raw.toLowerCase().includes("pinecone")) {
         tags.add("pinecone");
+        detectedDependencies.add("pinecone");
+      }
+
+      if (raw.toLowerCase().includes("sqlparse")) {
+        detectedDependencies.add("sqlparse");
+      }
+
+      if (raw.toLowerCase().includes("structlog")) {
+        detectedDependencies.add("structlog");
       }
     }
 
@@ -181,6 +226,7 @@ async function enrichTagsFromContent(
       if (raw.includes("ModelContextProtocol")) {
         tags.add("mcp");
         tags.add("tools");
+        detectedDependencies.add("ModelContextProtocol");
         signals.push({
           name: "Model Context Protocol package",
           evidence: path.relative(rootDirectory, filePath)
@@ -189,10 +235,12 @@ async function enrichTagsFromContent(
 
       if (raw.includes("SqlClient")) {
         tags.add("sqlserver");
+        detectedDependencies.add("Microsoft.Data.SqlClient");
       }
 
       if (raw.includes("Dapper")) {
         tags.add("dapper");
+        detectedDependencies.add("Dapper");
       }
     }
   }
@@ -207,6 +255,47 @@ async function enrichTagsFromContent(
   } catch {
     // No tests directory at root.
   }
+}
+
+function inferProbableArchitecture(
+  tags: ReadonlySet<string>,
+  signals: ReadonlyArray<StackSignal>,
+  files: ReadonlyArray<string>
+): string {
+  const lowerPaths = files.map((file) => file.toLowerCase());
+  const hasDomainFolders = lowerPaths.some((file) =>
+    file.includes("\\domain\\") || file.includes("/domain/")
+  );
+  const hasApplicationFolders = lowerPaths.some((file) =>
+    file.includes("\\application\\") || file.includes("/application/")
+  );
+  const hasInfrastructureFolders = lowerPaths.some((file) =>
+    file.includes("\\infrastructure\\") || file.includes("/infrastructure/")
+  );
+  const hasApiOrPresentationFolders = lowerPaths.some((file) =>
+    file.includes("\\api\\") ||
+    file.includes("/api/") ||
+    file.includes("\\presentation\\") ||
+    file.includes("/presentation/")
+  );
+
+  if (hasDomainFolders && hasApplicationFolders && hasInfrastructureFolders) {
+    return "clean-architecture";
+  }
+
+  if (hasApiOrPresentationFolders && tags.has("backend")) {
+    return "layered";
+  }
+
+  if (tags.has("mcp") || tags.has("tooling")) {
+    return "simple-modular";
+  }
+
+  if (signals.length >= 6 && tags.has("backend")) {
+    return "modular-monolith";
+  }
+
+  return "simple-modular";
 }
 
 async function safeReadText(filePath: string): Promise<string | null> {
