@@ -12,22 +12,29 @@ export async function loadReviewers(
   readonly reviewers: ReadonlyArray<ReviewerSpec>;
   readonly sources: ReadonlyArray<string>;
 }> {
-  const filePath = path.join(baseDirectory, REVIEWERS_FILE_NAME);
+  const candidatePaths = [
+    path.join(baseDirectory, REVIEWERS_FILE_NAME),
+    path.join(baseDirectory, ".nix", REVIEWERS_FILE_NAME)
+  ];
+  const loadedReviewers: ReviewerSpec[] = [...builtinReviewers];
+  const sources: string[] = ["builtin"];
 
-  try {
-    await access(filePath);
-  } catch {
-    return {
-      reviewers: builtinReviewers,
-      sources: ["builtin"]
-    };
+  for (const filePath of candidatePaths) {
+    try {
+      await access(filePath);
+    } catch {
+      continue;
+    }
+
+    const raw = await readFile(filePath, "utf8");
+    const parsed = JSON.parse(raw) as ReadonlyArray<ReviewerSpec>;
+
+    loadedReviewers.push(...parsed);
+    sources.push(filePath);
   }
 
-  const raw = await readFile(filePath, "utf8");
-  const parsed = JSON.parse(raw) as ReadonlyArray<ReviewerSpec>;
-
   return {
-    reviewers: [...builtinReviewers, ...parsed],
-    sources: ["builtin", filePath]
+    reviewers: loadedReviewers,
+    sources
   };
 }

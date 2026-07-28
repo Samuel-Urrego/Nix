@@ -1,4 +1,4 @@
-import { access, readFile } from "node:fs/promises";
+import { access, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { defaultNixConfig, type NixConfig } from "./nix-config.js";
@@ -21,15 +21,33 @@ export async function loadNixConfig(
 
   const raw = await readFile(configPath, "utf8");
   const parsed = JSON.parse(raw) as Partial<NixConfig>;
+  const config: NixConfig = {
+    projectName: parsed.projectName ?? defaultNixConfig.projectName,
+    defaultArchitecture:
+      parsed.defaultArchitecture ?? defaultNixConfig.defaultArchitecture,
+    reviewerSources: parsed.reviewerSources ?? defaultNixConfig.reviewerSources,
+    scanRoots: parsed.scanRoots ?? defaultNixConfig.scanRoots,
+    ...(parsed.preferredTestRoot
+      ? { preferredTestRoot: parsed.preferredTestRoot }
+      : {})
+  };
 
   return {
-    config: {
-      projectName: parsed.projectName ?? defaultNixConfig.projectName,
-      defaultArchitecture:
-        parsed.defaultArchitecture ?? defaultNixConfig.defaultArchitecture,
-      reviewerSources: parsed.reviewerSources ?? defaultNixConfig.reviewerSources,
-      scanRoots: parsed.scanRoots ?? defaultNixConfig.scanRoots
-    },
+    config,
     source: configPath
   };
+}
+
+export async function writeDefaultNixConfig(
+  baseDirectory: string,
+  overrides: Partial<NixConfig> = {}
+): Promise<string> {
+  const configPath = path.join(baseDirectory, CONFIG_FILE_NAME);
+  const config: NixConfig = {
+    ...defaultNixConfig,
+    ...overrides
+  };
+
+  await writeFile(`${configPath}`, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+  return configPath;
 }

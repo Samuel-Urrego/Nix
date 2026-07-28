@@ -3,6 +3,7 @@ export interface NixConfig {
   readonly defaultArchitecture: string;
   readonly reviewerSources: ReadonlyArray<string>;
   readonly scanRoots: ReadonlyArray<string>;
+  readonly preferredTestRoot?: string;
 }
 
 export const defaultNixConfig: NixConfig = {

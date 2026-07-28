@@ -3,7 +3,7 @@
 import path from "node:path";
 
 import { DefaultArchitectureSelector } from "../core/architecture/default-architecture-selector.js";
-import { loadNixConfig } from "../core/config/config-loader.js";
+import { loadNixConfig, writeDefaultNixConfig } from "../core/config/config-loader.js";
 import { projectMetadata } from "../core/system/project-metadata.js";
 import { loadReviewers } from "../core/reviewers/reviewer-registry.js";
 import type { ArchitectureSelectionInput } from "../core/contracts/architecture-selector.js";
@@ -11,11 +11,13 @@ import { builtinReviewers } from "../core/reviewers/builtin-reviewers.js";
 import { runReviewers } from "../core/reviewers/reviewer-runner.js";
 import { scanRepository } from "../core/stack/repo-scanner.js";
 import { stackInventory } from "../core/stack/stack-inventory.js";
+import { readOption } from "../core/system/cli-args.js";
 
 type CommandHandler = () => Promise<void>;
 
 const handlers = new Map<string, CommandHandler>([
   ["doctor", printDoctor],
+  ["config:init", initConfigCommand],
   ["reviewers:list", printReviewers],
   ["reviewers:run", runReviewersCommand],
   ["stack:scan", printStackInventory],
@@ -39,11 +41,13 @@ async function main(): Promise<void> {
 }
 
 async function printDoctor(): Promise<void> {
-  const { config, source } = await loadNixConfig();
-  const { reviewers, sources } = await loadReviewers();
+  const root = resolveRootFromArgs(process.argv.slice(3));
+  const { config, source } = await loadNixConfig(root);
+  const { reviewers, sources } = await loadReviewers(root);
 
   console.log(`${projectMetadata.name} doctor`);
   console.log("");
+  console.log(`Root: ${root}`);
   console.log(`Version: ${projectMetadata.version}`);
   console.log(`Runtime: ${projectMetadata.runtime}`);
   console.log(`Package manager: ${projectMetadata.packageManager}`);
@@ -57,10 +61,26 @@ async function printDoctor(): Promise<void> {
   console.log("Status: bootstrap-ready");
 }
 
+async function initConfigCommand(): Promise<void> {
+  const root = resolveRootFromArgs(process.argv.slice(3));
+  const configPath = await writeDefaultNixConfig(root, {
+    projectName: path.basename(root),
+    scanRoots: [root],
+    preferredTestRoot: "tests"
+  });
+
+  console.log("Nix config initialized");
+  console.log("");
+  console.log(`Root: ${root}`);
+  console.log(`Config: ${configPath}`);
+}
+
 async function printReviewers(): Promise<void> {
-  const { reviewers, sources } = await loadReviewers();
+  const root = resolveRootFromArgs(process.argv.slice(3));
+  const { reviewers, sources } = await loadReviewers(root);
 
   console.log("Loaded reviewers");
+  console.log(`Root: ${root}`);
   console.log(`Sources: ${sources.join(", ")}`);
   console.log("");
 
@@ -74,7 +94,8 @@ async function printReviewers(): Promise<void> {
 }
 
 async function printStackInventory(): Promise<void> {
-  const repoScan = await scanRepository();
+  const root = resolveRootFromArgs(process.argv.slice(3));
+  const repoScan = await scanRepository(root);
 
   console.log("Stack inventory");
   console.log("");
@@ -103,8 +124,9 @@ async function printStackInventory(): Promise<void> {
 }
 
 async function runReviewersCommand(): Promise<void> {
-  const { reviewers } = await loadReviewers();
-  const repoScan = await scanRepository();
+  const root = resolveRootFromArgs(process.argv.slice(3));
+  const { reviewers } = await loadReviewers(root);
+  const repoScan = await scanRepository(root);
   const reports = runReviewers(reviewers, repoScan);
 
   console.log("Reviewer run");
@@ -154,21 +176,9 @@ async function printArchitectureSelection(): Promise<void> {
 }
 
 function parseArchitectureSelectionInput(args: ReadonlyArray<string>): ArchitectureSelectionInput {
-  const values = new Map<string, string>();
-
-  for (const arg of args) {
-    const [key, rawValue] = arg.split("=");
-
-    if (!key || !rawValue) {
-      continue;
-    }
-
-    values.set(key.replace(/^--/, ""), rawValue);
-  }
-
-  const projectType = values.get("type") ?? "general";
-  const complexity = values.get("complexity");
-  const teamSize = values.get("team");
+  const projectType = readOption(args, "type") ?? "general";
+  const complexity = readOption(args, "complexity");
+  const teamSize = readOption(args, "team");
 
   return {
     projectType,
@@ -186,11 +196,16 @@ function parseArchitectureSelectionInput(args: ReadonlyArray<string>): Architect
   };
 }
 
+function resolveRootFromArgs(args: ReadonlyArray<string>): string {
+  return readOption(args, "root") ?? process.cwd();
+}
+
 async function printHelp(): Promise<void> {
   console.log("Nix CLI");
   console.log("");
   console.log("Commands:");
   console.log("  doctor           Show bootstrap status");
+  console.log("  config:init      Create a nix.config.json file in the target repository");
   console.log("  reviewers:list   List built-in reviewers");
   console.log("  reviewers:run    Run applicable reviewers against the current repository");
   console.log("  stack:scan       Print the current built-in stack inventory and repo signals");
@@ -199,7 +214,7 @@ async function printHelp(): Promise<void> {
   console.log("");
   console.log("Example:");
   console.log(
-    `  ${path.basename(process.argv[1] ?? "nix")} arch:select --type=tooling --complexity=low --team=solo`
+    `  ${path.basename(process.argv[1] ?? "nix")} stack:scan --root=C:\\Proyectos\\Araxys`
   );
 }
 
