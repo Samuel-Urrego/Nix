@@ -11,8 +11,8 @@
 - [x] Document stack inventory
 - [x] Define first skill/agent matrix
 - [x] Define reviewer strategy
-- [ ] Choose implementation language/runtime
-- [ ] Define module contracts
+- [x] Choose implementation language/runtime
+- [x] Define module contracts
 
 ## Phase 2 — Core contracts
 
@@ -20,15 +20,15 @@
 - [ ] Define review provider contracts
 - [ ] Define workflow models for SDD phases
 - [ ] Define TDD policy rules
-- [ ] Define CLI command surface
+- [x] Define CLI command surface
 - [ ] Define agent specification format
-- [ ] Define reviewer specification format
-- [ ] Define architecture selector rules
-- [ ] Define pattern reviewer rules
+- [x] Define reviewer specification format
+- [x] Define architecture selector rules
+- [x] Define pattern reviewer rules
 
 ## Phase 3 — First executable slice
 
-- [ ] Bootstrap runnable CLI
+- [x] Bootstrap runnable CLI
 - [ ] Wire orchestrator to memory provider
 - [ ] Implement minimal SDD flow skeleton
 - [ ] Implement verification and review hooks
@@ -41,4 +41,4 @@
 
 ## Recommended next move
 
-Pick the first runtime intentionally. That choice affects packaging, CLI ergonomics, testing strategy, and adapter design.
+Start wiring configuration, reviewer loading, and repository scanning into the TypeScript core.
