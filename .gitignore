@@ -1,0 +1,11 @@
+.atl/
+.DS_Store
+Thumbs.db
+dist/
+coverage/
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
