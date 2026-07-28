@@ -104,6 +104,13 @@ Nix is still in bootstrap mode, but the repository is already structured so cont
 
 ### Quick path
 
+1. Install Node.js 20.11+.
+2. Run `npm install`.
+3. Run `npm run doctor`.
+4. Explore `npm run reviewers:list` and `npm run stack:scan`.
+
+### Repository reading path
+
 1. Read `C:\Proyectos\Nix\docs\product-vision.md`
 2. Read `C:\Proyectos\Nix\docs\architecture.md`
 3. Read `C:\Proyectos\Nix\docs\roadmap.md`
@@ -116,7 +123,7 @@ Nix is still in bootstrap mode, but the repository is already structured so cont
 | Brand and vision | Ready |
 | Architecture foundation | Ready |
 | Agent and skill conventions | Ready |
-| Runtime implementation | In progress |
+| TypeScript runtime bootstrap | Ready |
 | Public contribution flow | Ready for first repo push |
 
 ## Documentation

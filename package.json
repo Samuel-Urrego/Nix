@@ -1,0 +1,27 @@
+{
+  "name": "nix-ai-stack",
+  "version": "0.1.0",
+  "private": true,
+  "description": "An open-source AI stack for disciplined software delivery.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "bin": {
+    "nix": "./dist/cli/index.js"
+  },
+  "scripts": {
+    "dev": "tsc -p tsconfig.json --watch",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "start": "node dist/cli/index.js",
+    "doctor": "npm run build && node dist/cli/index.js doctor",
+    "reviewers:list": "npm run build && node dist/cli/index.js reviewers:list",
+    "stack:scan": "npm run build && node dist/cli/index.js stack:scan"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.2"
+  }
+}

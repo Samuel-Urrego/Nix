@@ -8,6 +8,9 @@
 - [x] Define initial roadmap
 - [x] Add agent and skill conventions
 - [x] Add reusable skill templates
+- [x] Document stack inventory
+- [x] Define first skill/agent matrix
+- [x] Define reviewer strategy
 - [ ] Choose implementation language/runtime
 - [ ] Define module contracts
 
@@ -19,6 +22,9 @@
 - [ ] Define TDD policy rules
 - [ ] Define CLI command surface
 - [ ] Define agent specification format
+- [ ] Define reviewer specification format
+- [ ] Define architecture selector rules
+- [ ] Define pattern reviewer rules
 
 ## Phase 3 — First executable slice
 
