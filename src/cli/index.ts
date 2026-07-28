@@ -8,6 +8,7 @@ import { projectMetadata } from "../core/system/project-metadata.js";
 import { loadReviewers } from "../core/reviewers/reviewer-registry.js";
 import type { ArchitectureSelectionInput } from "../core/contracts/architecture-selector.js";
 import { builtinReviewers } from "../core/reviewers/builtin-reviewers.js";
+import { runReviewers } from "../core/reviewers/reviewer-runner.js";
 import { scanRepository } from "../core/stack/repo-scanner.js";
 import { stackInventory } from "../core/stack/stack-inventory.js";
 
@@ -16,6 +17,7 @@ type CommandHandler = () => Promise<void>;
 const handlers = new Map<string, CommandHandler>([
   ["doctor", printDoctor],
   ["reviewers:list", printReviewers],
+  ["reviewers:run", runReviewersCommand],
   ["stack:scan", printStackInventory],
   ["arch:select", printArchitectureSelection],
   ["help", printHelp]
@@ -86,6 +88,8 @@ async function printStackInventory(): Promise<void> {
   console.log("Repository signals");
   console.log(`Root: ${repoScan.root}`);
   console.log("");
+  console.log(`Tags: ${repoScan.tags.join(", ") || "none"}`);
+  console.log("");
 
   if (repoScan.signals.length === 0) {
     console.log("- No manifest signals found in the current working directory.");
@@ -95,6 +99,36 @@ async function printStackInventory(): Promise<void> {
   for (const signal of repoScan.signals) {
     console.log(`- ${signal.name}`);
     console.log(`  evidence: ${signal.evidence}`);
+  }
+}
+
+async function runReviewersCommand(): Promise<void> {
+  const { reviewers } = await loadReviewers();
+  const repoScan = await scanRepository();
+  const reports = runReviewers(reviewers, repoScan);
+
+  console.log("Reviewer run");
+  console.log("");
+  console.log(`Root: ${repoScan.root}`);
+  console.log(`Tags: ${repoScan.tags.join(", ") || "none"}`);
+  console.log(`Applicable reviewers: ${reports.length}`);
+  console.log("");
+
+  if (reports.length === 0) {
+    console.log("No reviewers applied to the current repository context.");
+    return;
+  }
+
+  for (const report of reports) {
+    console.log(`- ${report.reviewer.name}`);
+    console.log(`  category: ${report.reviewer.category}`);
+    console.log(`  verdict: ${report.verdict}`);
+
+    for (const finding of report.findings) {
+      console.log(`  [${finding.severity}] ${finding.message}`);
+    }
+
+    console.log("");
   }
 }
 
@@ -158,6 +192,7 @@ async function printHelp(): Promise<void> {
   console.log("Commands:");
   console.log("  doctor           Show bootstrap status");
   console.log("  reviewers:list   List built-in reviewers");
+  console.log("  reviewers:run    Run applicable reviewers against the current repository");
   console.log("  stack:scan       Print the current built-in stack inventory and repo signals");
   console.log("  arch:select      Recommend an architecture");
   console.log("  help             Show this help");

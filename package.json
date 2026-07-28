@@ -17,6 +17,7 @@
     "start": "node dist/cli/index.js",
     "doctor": "npm run build && node dist/cli/index.js doctor",
     "reviewers:list": "npm run build && node dist/cli/index.js reviewers:list",
+    "reviewers:run": "npm run build && node dist/cli/index.js reviewers:run",
     "stack:scan": "npm run build && node dist/cli/index.js stack:scan",
     "arch:select": "npm run build && node dist/cli/index.js arch:select"
   },
