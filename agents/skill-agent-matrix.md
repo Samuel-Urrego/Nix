@@ -22,6 +22,7 @@ Start with skills. Promote to agents only when the domain proves repeated, stabl
 | Design patterns | Yes | Optional later | Yes |
 | Docs / onboarding | Yes | Optional later | Yes |
 | PR / review workflows | Yes | Optional later | Yes |
+| Idea evaluation / decision support | Yes | Optional later | No |
 
 ## Priority skills
 

@@ -22,7 +22,12 @@ Nix is a personal AI stack for disciplined software delivery. Its core foundatio
 
 When a workflow becomes repeatable, encode it as a project skill instead of re-explaining it in chat.
 
-Use `C:\Proyectos\Nix\docs\skill-style-guide.md` as the normative guide for new project skills.
+Use `agents/skill-style-guide.md` as the normative guide for new project skills.
+
+## Project skills
+
+- `nix-core` (`skills/nix-core/SKILL.md`) — Nix architecture and safe-delivery conventions; activate for Nix AI Stack work.
+- `blind-judge` (`skills/blind-judge/SKILL.md`) — isolated idea evaluation with pro/con groups and five neutral evaluators; optional decision support.
 
 ## Agent strategy
 

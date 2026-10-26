@@ -90,4 +90,4 @@ The right architecture or pattern is the one that fits the problem, not the one 
 
 ## Next step
 
-Use this contract together with `C:\Proyectos\Nix\docs\architecture-selector.md` and `C:\Proyectos\Nix\docs\pattern-review-rules.md`.
+Use this contract together with `architecture-selector.md` and `pattern-review-rules.md`.
