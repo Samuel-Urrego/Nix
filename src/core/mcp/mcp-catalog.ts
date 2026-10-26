@@ -81,6 +81,28 @@ export const mcpCatalog: ReadonlyArray<McpCatalogEntry> = [
       command: ["engram", "mcp", "--tools=agent"]
     },
     removal: "Removes only the Nix-managed server entry; the local Engram data store is never deleted."
+  },
+  {
+    id: "rea",
+    name: "REA MCP",
+    purpose: "Evidence-backed reverse engineering across binaries, applications, and runtime behavior.",
+    supportedAgents: ["opencode", "codex"],
+    scope: "global",
+    networkAccess: "first-run",
+    prerequisites: [
+      { kind: "command", name: "node", description: "Node.js 22.23.4+, 24.22.1+, or 26.12.1+ is required by rea-agents" },
+      { kind: "command", name: "npx", description: "npx downloads and launches the pinned rea-agents package" }
+    ],
+    credentials: {
+      required: false,
+      envVars: [],
+      note: "No credentials are required. Native analysis providers and tools are separately configured when needed."
+    },
+    server: {
+      type: "local",
+      command: ["npx", "-y", "rea-agents@6.8.0", "mcp"]
+    },
+    removal: "Removes only the Nix-managed server entry; REA package files, analysis data, and user configuration are preserved."
   }
 ];
 

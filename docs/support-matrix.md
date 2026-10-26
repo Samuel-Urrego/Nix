@@ -19,27 +19,28 @@ This matrix records what the current release verifies. It is not a roadmap promi
 
 | Agent | Status | Supported surface |
 |-------|--------|-------------------|
-| OpenCode | **Supported** | Project-local skills, MCP entries, security hooks, workflow slash commands, SDD/TDD workflows. |
-| Codex | **Supported** | Project-local skills, MCP entries, security hooks, CLI workflow commands. Custom slash prompts are not supported. |
+| OpenCode | **Supported** | Global skills, MCP entries, security hooks, workflow slash commands, SDD/TDD workflows. |
+| Codex | **Supported** | Global skills, MCP entries, security hooks, workflow user skills, SDD/TDD workflows. Custom slash prompts are not supported. |
 | Other agents | **Unsupported** | No adapter is implemented. |
 
-Codex custom slash prompts are deprecated upstream and user-global; Nix does not install them. Codex users run the workflow commands through the CLI.
+Codex custom slash prompts are deprecated upstream; Nix installs Codex user skills under `~/.agents/skills` instead. The skills invoke the same CLI workflow executor.
 
 ## Components and features
 
 | Feature | Status | Scope |
 |---------|--------|-------|
-| Nix Core component lifecycle | **Supported** | Project-local install, update, backup, restore, and uninstall for `skill.nix-core`. |
-| External skill catalog | **Supported** | Six pinned skills, project-local, OpenCode and Codex. See [skill catalog](skill-catalog.md). |
-| Optional MCP integrations | **Supported** | Playwright, CodeGraph, and Engram; project-local; prerequisites apply. |
-| SDD/TDD workflows | **Supported** | Independently configurable, project-local records, CLI execution. |
-| Workflow command catalog | **Supported** | `/new-feat`, `/refactor`, `/new-idea`; OpenCode slash commands and Codex CLI. |
+| Nix Core component lifecycle | **Supported** | Global install, update, backup, restore, and uninstall for `skill.nix-core`. |
+| External skill catalog | **Supported** | Six pinned skills, global, OpenCode and Codex. See [skill catalog](skill-catalog.md). |
+| Optional MCP integrations | **Supported** | Playwright, CodeGraph, and Engram; global; prerequisites apply. |
+| SDD/TDD workflows | **Supported** | Independently configurable, project-keyed records under the Nix home, CLI execution. |
+| Workflow command catalog | **Supported** | `/new-feat`, `/refactor`, `/new-idea`; global OpenCode commands and Codex user skills. |
 | Blind-judge evaluation | **Supported** | Isolated context groups, five neutral evaluators, bounded synthesis; not a process sandbox. |
-| Security hooks | **Supported, advisory** | Opt-in, project-local, Windows shells; not a sandbox. |
-| Configuration and doctor | **Supported** | `nix.config.json`, stack preferences, diagnostic report. |
+| Security hooks | **Supported, advisory** | Opt-in, global, Windows shells; not a sandbox. |
+| Configuration and doctor | **Supported** | Global `config.json`, stack preferences, diagnostic report. |
 | Release checksums | **Supported** | SHA-256 manifest and verification; integrity only. |
 | Release signing | **Not implemented** | No key infrastructure or trust root. |
-| Global configuration | **Unsupported** | Component and hook operations are project-local. |
+| Global configuration | **Supported** | State, config, managed records, and agent surfaces live under the Nix home. |
+| Project-local installation | **Unsupported** | Component, skill, MCP, workflow-command, and hook operations are global. |
 | Automatic state migration | **Unsupported** | Unsupported schemas are rejected. |
 | Sandboxing | **Unsupported** | Hooks and blind-judge evaluation are advisory boundaries, not sandboxes. |
 | AI-backed reviewer execution | **Unsupported** | The reviewer command remains heuristic. |
@@ -47,7 +48,7 @@ Codex custom slash prompts are deprecated upstream and user-global; Nix does not
 ## Compatibility contract
 
 - Stack state schema: `1`.
-- Project configuration: `nix.config.json`, partial, unknown keys ignored.
+- Global configuration: `config.json` under the Nix home, partial, unknown keys ignored.
 - Component upgrade: higher version only; downgrade and same-version replacement refused.
 - Release artifact: any `dist/` tree plus `release-manifest.json`.
 - Supported platform: Windows v1.

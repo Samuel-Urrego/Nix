@@ -41,13 +41,13 @@ nix-ai doctor --root=.
 
 Expected result: the report ends with `Status: bootstrap-ready` and shows the current version, stack preferences, workflow settings, reviewer sources, and release compatibility.
 
-Create a project-local configuration when you want explicit settings:
+Create the global configuration when you want explicit settings:
 
 ```powershell
 nix-ai config:init --root=.
 ```
 
-This writes `nix.config.json` in the selected project. The file is optional; Nix uses defaults when it is absent.
+This writes `config.json` under the Nix home (`NIX_AI_HOME`, otherwise `%APPDATA%\Nix AI Stack` on Windows). The file is optional; Nix uses defaults when it is absent.
 
 Open the interactive terminal UI with no command:
 
@@ -55,7 +55,7 @@ Open the interactive terminal UI with no command:
 nix-ai
 ```
 
-The TUI provides the guided path for previewing and managing components. The CLI equivalents below exercise the same project-local lifecycle and are the automated path used by the release tests.
+The TUI provides the guided path for previewing and managing components. The CLI equivalents below exercise the same global lifecycle and are the automated path used by the release tests.
 
 ## Install the Nix Core component
 
@@ -64,16 +64,16 @@ nix-ai component --action=preview --component=skill.nix-core --root=.
 nix-ai component --action=install --component=skill.nix-core --root=. --yes
 ```
 
-The install writes only inside the selected project:
+The install writes only to the global Codex user-skill directory:
 
 ```text
-.agents/skills/nix-core/SKILL.md
-.agents/skills/nix-core/.nix-ai-managed.json
+~/.agents/skills/nix-core/SKILL.md
+~/.agents/skills/nix-core/.nix-ai-managed.json
 ```
 
 Mutating actions require `--yes`. Nix refuses to overwrite an unowned target or content it does not manage.
 
-## Optional project-local setup
+## Optional global setup
 
 Security hooks are opt-in and advisory, not a sandbox:
 
@@ -101,13 +101,14 @@ nix-ai skill:preview --id=brag --agent=codex --root=.
 nix-ai skill:install --id=brag --agent=codex --root=. --yes
 ```
 
-OpenCode slash commands for the workflow catalog:
+OpenCode slash commands and Codex workflow skills for the workflow catalog:
 
 ```powershell
 nix-ai workflow:install-commands --agent=opencode --root=. --yes
+nix-ai workflow:install-commands --agent=codex --root=. --yes
 ```
 
-Codex custom slash prompts are deprecated upstream and are not supported. Use the Codex CLI workflow commands instead.
+Codex custom slash prompts are deprecated upstream and are not used. Codex receives user skills under `~/.agents/skills` that invoke the same CLI executor.
 
 ## Diagnose
 
@@ -146,7 +147,7 @@ Upgrade rules:
 - A downgrade is refused.
 - A same-version replacement with different content is refused.
 - Stack state schema 1 is current. An unsupported schema is rejected with a clear error instead of being migrated implicitly.
-- `nix.config.json` is read as a partial configuration; unknown keys are ignored for forward compatibility.
+- `config.json` under the Nix home is read as a partial configuration; unknown keys are ignored for forward compatibility.
 
 ## Backup, restore, and rollback
 
@@ -164,7 +165,7 @@ nix-ai component --action=uninstall --component=skill.nix-core --root=. --yes
 nix-ai component --action=restore --component=skill.nix-core --backup=<backup-id> --root=. --yes
 ```
 
-Backups live under `.nix-ai/backups/` inside the project. A restore refuses to overwrite an existing managed target. Stack-state writes also keep a `.bak` copy of the previous state file.
+Backups live under `<nix-home>/backups/components`. A restore refuses to overwrite an existing managed target. Stack-state writes also keep a `.bak` copy of the previous state file.
 
 ## Remove
 

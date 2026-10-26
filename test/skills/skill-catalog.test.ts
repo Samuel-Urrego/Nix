@@ -3,10 +3,10 @@ import test from "node:test";
 
 import { findSkillEntry, skillCatalog } from "../../src/core/skills/skill-catalog.js";
 
-test("skill catalog declares the six requested skills with unique ids and install paths", () => {
+test("skill catalog declares the requested skills with unique ids and install paths", () => {
   assert.deepEqual(
     skillCatalog.map((entry) => entry.id).sort(),
-    ["accessibility", "brag", "design-taste-frontend", "emil-design-eng", "grafana-k6", "security-audit"]
+    ["accessibility", "brag", "design-taste-frontend", "emil-design-eng", "grafana-k6", "rea", "security-audit"]
   );
   assert.equal(new Set(skillCatalog.map((entry) => entry.id)).size, skillCatalog.length);
   for (const entry of skillCatalog) {
@@ -28,6 +28,7 @@ test("skill catalog records verified licenses and provenance", () => {
     ["brag", "MIT", "latent-spaces/brag", "0.4.0"],
     ["grafana-k6", "Apache-2.0", "grafana/skills", "main@cc33318"],
     ["security-audit", "MIT", "cloudflare/security-audit-skill", "main@c1c8a8c"],
+    ["rea", "MIT", "morluto/rea", "6.8.0"],
     ["emil-design-eng", "MIT", "emilkowalski/skills", "main@2d22863"],
     ["design-taste-frontend", "MIT", "Leonxlnx/taste-skill", "2.0.0-experimental"],
     ["accessibility", "MIT", "addyosmani/web-quality-skills", "2.0"]
@@ -42,8 +43,7 @@ test("skill catalog records verified licenses and provenance", () => {
 });
 
 test("skill catalog encodes agent compatibility and dependencies", () => {
-  assert.deepEqual(findSkillEntry("security-audit")?.compatibleAgents, ["opencode"]);
-  for (const id of ["brag", "grafana-k6", "emil-design-eng", "design-taste-frontend", "accessibility"]) {
+  for (const id of ["security-audit", "rea", "brag", "grafana-k6", "emil-design-eng", "design-taste-frontend", "accessibility"]) {
     assert.deepEqual(findSkillEntry(id)?.compatibleAgents, ["opencode", "codex"]);
   }
   assert.ok(findSkillEntry("brag")?.dependencies.some((item) => item.name === "ffmpeg"));

@@ -3,8 +3,8 @@ import test from "node:test";
 
 import { mcpCatalog, findMcpEntry } from "../../src/core/mcp/mcp-catalog.js";
 
-test("MCP catalog declares three independent global integrations", () => {
-  assert.deepEqual(mcpCatalog.map((entry) => entry.id), ["playwright", "codegraph", "engram"]);
+test("MCP catalog declares independent global integrations", () => {
+  assert.deepEqual(mcpCatalog.map((entry) => entry.id), ["playwright", "codegraph", "engram", "rea"]);
   for (const entry of mcpCatalog) {
     assert.equal(entry.scope, "global");
     assert.deepEqual([...entry.supportedAgents].sort(), ["codex", "opencode"]);
@@ -29,4 +29,9 @@ test("MCP catalog records pinned commands, network access, and prerequisites", (
   const engram = findMcpEntry("engram");
   assert.deepEqual(engram?.server.command, ["engram", "mcp", "--tools=agent"]);
   assert.ok(engram?.prerequisites.some((item) => item.kind === "command"));
+
+  const rea = findMcpEntry("rea");
+  assert.deepEqual(rea?.server.command, ["npx", "-y", "rea-agents@6.8.0", "mcp"]);
+  assert.equal(rea?.networkAccess, "first-run");
+  assert.ok(rea?.prerequisites.some((item) => item.kind === "command" && item.name === "node"));
 });

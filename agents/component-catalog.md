@@ -11,13 +11,13 @@ This catalog documents the Nix-authored components that the component lifecycle 
 | Version | `1.0.0` |
 | Kind | `skill` |
 | Agent target | `codex` |
-| Install path | `.agents/skills/nix-core` |
+| Install path | Global Codex user skills: `~/.agents/skills/nix-core` |
 | Source | `skills/nix-core` |
 | License | Apache-2.0 |
 | Dependencies | None |
 | Managed files | `SKILL.md` |
 
-Install it project-locally:
+Install it globally:
 
 ```powershell
 nix-ai component --action=preview --component=skill.nix-core --root=.
@@ -31,7 +31,7 @@ nix-ai component --action=install --component=skill.nix-core --root=. --yes
 | `preview` | Read-only plan. Reports `install`, `update`, `already-current`, `not-installed`, or `conflict`. |
 | `install` | Writes the component only when the target is absent or a valid older managed version. Records ownership and file hashes. |
 | `update` | Requires a higher component version. Backs up the current managed target, then writes the new version. |
-| `backup` | Copies the current managed target into `.nix-ai/backups/` and records the backup metadata. |
+| `backup` | Copies the current managed target into `<nix-home>/backups/components` and records the backup metadata. |
 | `list-backups` | Lists backup IDs, component versions, and creation times. |
 | `restore` | Restores a backup only when the target is absent. |
 | `uninstall` | Removes a managed target after verifying the owner record; creates a backup first. |
@@ -44,7 +44,7 @@ Every mutating action requires `--yes`.
 - Nix refuses to overwrite an unowned target.
 - Nix refuses to update, back up, restore over, or remove content that no longer matches the owner record.
 - A downgrade or a same-version content replacement is a conflict.
-- Backups are project-local under `.nix-ai/backups/`.
+- Backups live under `<nix-home>/backups/components`.
 - Write failures detected during install trigger cleanup of the partial managed target.
 - A hard process kill can leave an unowned partial directory; review and remove it manually before reinstalling.
 

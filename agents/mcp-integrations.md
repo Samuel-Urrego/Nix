@@ -1,23 +1,24 @@
 # Optional MCP integrations
 
-Nix can preview, install, update, diagnose, and remove three project-local MCP servers without touching unrelated configuration. Every integration is selected independently and writes only to the current project.
+Nix can preview, install, update, diagnose, and remove four global MCP servers without touching unrelated configuration. Every integration is selected independently and writes only to the selected agent's global config.
 
 | Integration | Purpose | Network | Credentials | Prerequisite |
 |-------------|---------|---------|-------------|--------------|
 | `playwright` | Browser automation, page inspection, and end-to-end testing | First run may download the npm package | None written | Node.js with `npx` |
 | `codegraph` | Call graphs, code relationships, and impact analysis | None | None written | `@astudioplus/codegraph-mcp` installed in the project |
 | `engram` | Persistent project memory across sessions | None | None written | `engram` available on `PATH` |
+| `rea` | Evidence-backed reverse engineering across binaries, applications, and runtime behavior | First run downloads the pinned npm package | None required | Node.js 22.23.4+, 24.22.1+, or 26.12.1+ and `npx` |
 
 ## Target files and scope
 
-All integrations are **project-scoped**. Nix never edits global user configuration.
+All integrations are **global user-scope**. Nix never edits a project-local `.opencode` or `.codex` directory.
 
 | Agent | File | Shape |
 |-------|------|-------|
-| OpenCode | `opencode.json` | `mcp.servers.<id>` (OpenCode V2) |
-| Codex | `.codex/config.toml` | `[mcp_servers.<id>]` |
+| OpenCode | `<opencode-config-directory>/opencode.jsonc` when present, otherwise `opencode.json` | `mcp.servers.<id>` (OpenCode V2) |
+| Codex | `<codex-home>/config.toml` | `[mcp_servers.<id>]` |
 
-OpenCode config is parsed as JSON. Malformed JSON is diagnosed as invalid and is never overwritten. Legacy `mcp.<id>` entries are recognized as existing servers but new entries are written under `mcp.servers`.
+OpenCode config is parsed as JSONC when the target is `.jsonc`; comments and unrelated settings are preserved. Malformed JSON is diagnosed as invalid and is never overwritten. Legacy `mcp.<id>` entries keep their legacy shape; an existing `mcp.servers` object keeps the V2 shape. A new config uses `mcp.servers`.
 
 The Codex adapter edits only the matching `[mcp_servers.<id>]` section. Comments, keys, and other sections outside that block are preserved byte-for-byte. Duplicate managed sections are rejected. The adapter does not parse unrelated TOML features.
 
@@ -30,13 +31,15 @@ nix-ai mcp:preview --id=codegraph --agent=opencode --root=.
 nix-ai mcp:install --id=codegraph --agent=opencode --root=. --yes
 nix-ai mcp:update  --id=codegraph --agent=opencode --root=. --yes
 nix-ai mcp:remove  --id=codegraph --agent=opencode --root=. --yes
+nix-ai mcp:preview --id=rea --agent=codex --root=.
+nix-ai mcp:install --id=rea --agent=codex --root=. --yes
 ```
 
 `--agent` accepts `opencode` or `codex`. Mutating actions require `--yes`.
 
 Preview is read-only and always shows:
 
-- `Scope: project` and the exact target path;
+- `Scope: global` and the exact target path;
 - `Network: none` or `first-run`;
 - `Credentials: none required`, or the environment variable names a future remote integration would reference;
 - missing prerequisites, if any.
@@ -45,7 +48,7 @@ Install refuses when a prerequisite is missing. It also refuses when an existing
 
 ## Ownership and safe updates
 
-Nix records each install in `.nix/mcp/managed.json` with the integration id, agent, install time, and a hash of the installed specification.
+Nix records each install in `<nix-home>/managed/mcp.json` with the integration id, agent, install time, and a hash of the installed specification.
 
 | Situation | Preview | Install | Update | Remove |
 |-----------|---------|---------|--------|--------|
@@ -73,11 +76,11 @@ Removal deletes only the Nix-managed entry and its ownership record. Other serve
 
 ## Credentials
 
-These three integrations require no credentials. Nix never writes literal secrets. If a future integration needs a token, the catalog must reference it as an environment placeholder (for example `{env:MCP_API_KEY}` for OpenCode) and declare the variable name in its credential policy; the value stays in the user's environment.
+These integrations require no credentials. Nix never writes literal secrets. If a future integration needs a token, the catalog must reference it as an environment placeholder (for example `{env:MCP_API_KEY}` for OpenCode) and declare the variable name in its credential policy; the value stays in the user's environment.
 
 ## Current limits
 
-- Only OpenCode and Codex project-local configuration is supported.
+- Only OpenCode and Codex global configuration is supported.
 - Playwright package download happens on first server start; Nix does not prefetch it or install browsers.
 - The Codex adapter performs narrow section editing, not full TOML parsing.
 - `mcp:status` checks configuration and prerequisites, not a live MCP handshake.

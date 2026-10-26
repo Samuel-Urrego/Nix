@@ -73,7 +73,7 @@ export const skillCatalog: ReadonlyArray<SkillCatalogEntry> = [
     dependencies: [
       { kind: "runtime", name: "node", description: "Node.js for the findings and coverage validators", required: true }
     ],
-    compatibleAgents: ["opencode"],
+    compatibleAgents: ["opencode", "codex"],
     installPaths: installPaths("security-audit"),
     updatePolicy: "pinned",
     stackTags: ["security", "review", "backend", "mcp"]
@@ -119,6 +119,28 @@ export const skillCatalog: ReadonlyArray<SkillCatalogEntry> = [
     installPaths: installPaths("design-taste-frontend"),
     updatePolicy: "pinned",
     stackTags: ["frontend", "design", "react", "astro"]
+  },
+  {
+    id: "rea",
+    name: "Reverse Engineer Anything",
+    description: "Investigate shipped applications, binaries, and runtime behavior with evidence-backed reverse-engineering workflows.",
+    source: {
+      kind: "git",
+      repo: "https://github.com/morluto/rea",
+      ref: "160d821ac9a0310afcb8d1fc427862dd6508add5",
+      path: ".agents/skills/reverse-engineer-anything",
+      licensePath: "LICENSE"
+    },
+    license: "MIT",
+    version: "6.8.0",
+    dependencies: [
+      { kind: "runtime", name: "node", description: "Node.js 22.23.4+, 24.22.1+, or 26.12.1+", required: true },
+      { kind: "command", name: "npm", description: "npm to install or run the REA MCP package", required: true }
+    ],
+    compatibleAgents: ["opencode", "codex"],
+    installPaths: installPaths("rea"),
+    updatePolicy: "pinned",
+    stackTags: ["reverse-engineering", "security", "binary-analysis", "mcp"]
   },
   {
     id: "accessibility",

@@ -20,6 +20,7 @@ This is a maintained mapping from the real technology stack in [`stack-inventory
 | AI / vector applications | FastAPI, Pinecone, OpenAI, LangChain | `security-audit` | `grafana-k6` for latency and load behavior | `emil-design-eng`, `design-taste-frontend` |
 | Launch and marketing | Product sites, demos, share copy | `brag` | `design-taste-frontend` for the landing page | `grafana-k6`, `security-audit` unless the surface is public |
 | Cross-cutting review | Any repository before release | `security-audit`, `accessibility` | `grafana-k6` for performance evidence | `brag` |
+| Reverse engineering | Shipped applications, binaries, and runtime behavior | `rea` | `security-audit` when findings need a security audit | `emil-design-eng`, `design-taste-frontend` |
 
 ## Existing skills outside the catalog
 

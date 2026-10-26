@@ -30,7 +30,7 @@ test("skill CLI lists the catalog and previews provenance without writing", asyn
   try {
     const list = runCli(["skill:list"]);
     assert.equal(list.status, 0, list.stderr);
-    for (const id of ["brag", "grafana-k6", "security-audit", "emil-design-eng", "design-taste-frontend", "accessibility"]) {
+    for (const id of ["brag", "grafana-k6", "security-audit", "rea", "emil-design-eng", "design-taste-frontend", "accessibility"]) {
       assert.match(list.stdout, new RegExp(id));
     }
 
@@ -75,13 +75,17 @@ test("skill CLI installs from an explicit source, reports status, and removes on
   }
 });
 
-test("skill CLI refuses incompatible agents and scaffolds project-authored skills", async () => {
+test("skill CLI supports Security Audit in Codex, rejects unknown agents, and scaffolds project-authored skills", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "nix-cli-skill-"));
   const restoreHome = useProjectHome(root);
   try {
-    const incompatible = runCli(["skill:install", "--id=security-audit", "--agent=codex", `--root=${root}`, "--yes"]);
-    assert.notEqual(incompatible.status, 0);
-    assert.match(incompatible.stderr, /not compatible|incompatible/i);
+    const codexPreview = runCli(["skill:preview", "--id=security-audit", "--agent=codex", `--root=${root}`]);
+    assert.equal(codexPreview.status, 0, codexPreview.stderr);
+    assert.match(codexPreview.stdout, /Source: https:\/\/github\.com\/cloudflare\/security-audit-skill/);
+
+    const unsupported = runCli(["skill:install", "--id=security-audit", "--agent=claude", `--root=${root}`, "--yes"]);
+    assert.notEqual(unsupported.status, 0);
+    assert.match(unsupported.stderr, /Provide --agent=opencode or --agent=codex/);
 
     const scaffolded = runCli(["skill:new", "--id=release-notes", `--root=${root}`]);
     assert.equal(scaffolded.status, 0, scaffolded.stderr);

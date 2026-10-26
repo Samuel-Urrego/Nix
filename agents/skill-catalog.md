@@ -1,6 +1,6 @@
 # Skill Catalog and Installation
 
-Nix installs selected external skills from pinned upstream commits into project-local agent directories. It does not vendor third-party skill trees, so the catalog cannot drift into a stale copy.
+Nix installs selected external skills from pinned upstream commits into global agent skill directories. It does not vendor third-party skill trees, so the catalog cannot drift into a stale copy.
 
 ## Catalog format
 
@@ -25,11 +25,12 @@ Every entry in `src/core/skills/skill-catalog.ts` declares:
 | `brag` | `latent-spaces/brag` | `069432cac935ed1895859df201c31436c07fb74e` | `skills/brag` | MIT | `0.4.0` |
 | `grafana-k6` | `grafana/skills` | `cc33318b60a7fbc2c69a25122164baf00e805f79` | `skills/grafana-k6/k6` | Apache-2.0 | `main@cc33318` |
 | `security-audit` | `cloudflare/security-audit-skill` | `c1c8a8c1471069fb0e188eeaff69b8e8db6564a8` | `skills/security-audit` | MIT | `main@c1c8a8c` |
+| `rea` | `morluto/rea` | `160d821ac9a0310afcb8d1fc427862dd6508add5` | `.agents/skills/reverse-engineer-anything` | MIT | `6.8.0` |
 | `emil-design-eng` | `emilkowalski/skills` | `2d228630ba1446365f614a108cb8252f1feda202` | `skills/emil-design-eng` | MIT | `main@2d22863` |
 | `design-taste-frontend` | `Leonxlnx/taste-skill` | `6010f91a9935f1c167dfc500fb1a475681892e6b` | `skills/taste-skill` | MIT | `2.0.0-experimental` |
 | `accessibility` | `addyosmani/web-quality-skills` | `afa8da942115f2961fdbfa80807ea0b232ff6c00` | `skills/accessibility` | MIT | `2.0` |
 
-All six `SKILL.md` paths returned HTTP 200 at the pinned commits when the catalog was authored.
+The six original `SKILL.md` paths returned HTTP 200 at their pinned commits when the catalog was authored. The REA skill path was verified at its pinned 6.8.0 release commit.
 
 ## Install locations
 
@@ -78,7 +79,8 @@ Installation refuses path traversal, symlinks, non-regular files, duplicate file
 |-------|----------|----------|
 | `brag` | Node.js 22+, FFmpeg, `npx` | `uv` for custom music cues |
 | `grafana-k6` | `k6` v2.0+ | — |
-| `security-audit` | Node.js | Parallel sub-agents (therefore OpenCode-only) |
+| `security-audit` | Node.js | Parallel sub-agents |
+| `rea` | Node.js 22.23.4+, 24.22.1+, or 26.12.1+; npm | REA MCP registration for tool-backed investigations; native analysis engines are target-dependent |
 | `emil-design-eng` | None | — |
 | `design-taste-frontend` | Node.js 22+, Chrome/Edge/Chromium | Network for reference images |
 | `accessibility` | None | Lighthouse CLI or `npx` |
@@ -91,5 +93,6 @@ The catalog is pinned. Updating a skill means changing its `ref` and `version` i
 
 - Downloading a skill requires network access and `git`.
 - The installer copies skill files; it does not execute setup scripts or install toolchains.
-- `security-audit` is intentionally OpenCode-only until Codex parallel sub-agent support is verified.
+- `security-audit` is supported on OpenCode and Codex; parallel sub-agents are required for its full audit workflow.
+- The REA skill provides workflow guidance; install the separate REA MCP integration to expose its analysis tools to the agent.
 - The catalog records provenance but does not re-verify upstream content signatures.

@@ -31,7 +31,7 @@ The manifest records:
 - package name `nix-ai-stack`;
 - package version;
 - generation timestamp;
-- compatibility contract: stack state schema `1`, config file `nix.config.json`, Node.js `>=20.11.0`, Windows platform, OpenCode and Codex agents;
+- compatibility contract: stack state schema `1`, config file `config.json`, Node.js `>=20.11.0`, Windows platform, OpenCode and Codex agents;
 - the hashed file list.
 
 To inspect without writing:
@@ -84,12 +84,12 @@ npm pack --dry-run
 - Every successful state save copies the previous file to `<state>.bak` before writing the new state.
 - A failed write restores the backup.
 
-### Project configuration
+### Global configuration
 
-- File name: `nix.config.json`.
+- File name: `config.json` under the Nix home (`NIX_AI_HOME`, otherwise `%APPDATA%\Nix AI Stack` on Windows).
 - The file is optional and read as a partial configuration; missing fields use defaults.
 - Unknown keys are ignored, which keeps older builds forward-compatible with newer configuration files.
-- Configuration initialization writes only the project-local file.
+- Configuration initialization writes only the global file.
 
 ### Components
 
@@ -97,7 +97,7 @@ npm pack --dry-run
 - An update requires a higher version than the installed owner record.
 - Downgrades and same-version content replacements are refused.
 - Managed content is verified against the owner record before update, backup, restore, or uninstall.
-- Backups are project-local and can restore a previous version after an uninstall.
+- Backups live under `<nix-home>/backups/components` and can restore a previous version after an uninstall.
 - A hard process kill can leave an unowned partial directory. The installer cleans up failures it detects during the write, but manual review is required after an interrupted process.
 
 ### Runtime and targets
@@ -105,7 +105,7 @@ npm pack --dry-run
 - Node.js `>=20.11.0`.
 - Windows is the only verified platform for v1.
 - OpenCode and Codex are the only verified agents.
-- Codex custom slash prompts remain unsupported because they are deprecated upstream and user-global.
+- Codex custom slash prompts remain unsupported because they are deprecated upstream; Codex receives workflow user skills under `~/.agents/skills` instead.
 - Security hooks are advisory and opt-in, not a sandbox.
 
 ## Release checklist
@@ -133,6 +133,6 @@ Run from a clean source checkout:
 - No digital signing or provenance attestation.
 - No macOS or Linux verification.
 - No automatic migration for unsupported stack-state schemas.
-- No global installation mode; component operations are project-local.
+- No project-local installation mode; component, skill, MCP, and security-hook operations are global.
 - No sandbox for hooks or blind-judge evaluation.
 - No registry publish workflow.
