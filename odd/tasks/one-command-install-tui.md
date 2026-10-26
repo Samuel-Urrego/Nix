@@ -42,9 +42,9 @@ Checks: Structural doc readback and links.
 
 | ID | Specs | Route | Status | Commit |
 |----|-------|-------|--------|--------|
-| T1 | S1 | Inline | Done — PowerShell bootstrap dry-run and package build lifecycle pass | — |
-| T2 | S2 | Inline | Done — TUI agent, MCP, and command managers reuse existing safe installers; integration tests pass | — |
-| T3 | S3 | Inline | Done — one-command install and TUI path documented; local guide links and acceptance section checked | — |
+| T1 | S1 | Inline | Done — PowerShell bootstrap dry-run and package build lifecycle pass | `6064bc1` |
+| T2 | S2 | Inline | Done — TUI agent, MCP, and command managers reuse existing safe installers; install-decline test confirms no target writes | `6064bc1`, `9206bd4` |
+| T3 | S3 | Inline | Done — one-command install and TUI path documented; local guide links and acceptance section checked | `6064bc1` |
 
 ## Log
 
@@ -56,5 +56,8 @@ Checks: Structural doc readback and links.
 - L6 — `scripts/install.ps1` targets a dedicated user-level npm prefix and only adds it to user PATH after explicit confirmation; no admin elevation or execution-policy changes are used. It launches the TUI after install.
 - L7 — TUI now manages specialist agents, MCP integrations, and workflow commands through existing previews and ownership-safe services. Skills and security hooks already had TUI managers; missing prerequisites and unverifiable removals are shown without applying changes.
 - L8 — RED/GREEN: injected TUI test initially failed because no TTY injection was possible; added a prompt/output seam and integration tests. Installer/package tests also failed before adding the npm `prepare` script and PowerShell bootstrap.
-- L9 — Full verification: `npm test` (131 passed, 1 skipped, 0 failed), `npm run typecheck`, `npm run build`, `git diff --check`, installer `-DryRun`, and local `npm pack` plus isolated global CLI version smoke test pass. The skipped symlink test requires Windows symlink capability.
+- L9 — Full verification after the decline regression test: `npm test` (132 passed, 1 skipped, 0 failed), `npm run typecheck`, `npm run build`, and `git diff --check` pass. Earlier checks also passed installer `-DryRun` and local `npm pack` plus isolated global CLI version smoke test. The skipped symlink test requires Windows symlink capability.
 - L10 — Structural docs check confirms the support-matrix/release links and clean-machine checklist remain present. The PowerShell script uses `return` rather than `exit` for dry-run, so invoking the script from a user's interactive session does not close their shell.
+
+- L11 — Independent verification of 6064bc1 passed focused tests, typecheck, and build. In verifier scratch, the full suite's CRLF-sensitive agent-catalog failure reproduced on both baseline 71406a7 and candidate; the parent workspace full suite passes. Live installation was not performed because it requires network access and user-level mutation.
+- L12 — Added regression test 9206bd4: declining agent, MCP, and workflow-command installations leaves all candidate global files and ownership manifests absent; full suite remains green.
