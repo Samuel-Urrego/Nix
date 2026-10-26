@@ -7,13 +7,27 @@ export type SkillDependency =
   | { readonly kind: "runtime"; readonly name: string; readonly description: string; readonly required: boolean }
   | { readonly kind: "network"; readonly name: string; readonly description: string; readonly required: boolean };
 
-export interface SkillSource {
+export type SkillSource = GitSkillSource | BundledSkillSource;
+
+export interface GitSkillSource {
   readonly kind: "git";
   readonly repo: string;
   readonly ref: string;
   readonly path: string;
   readonly licensePath: string;
   readonly noticePath?: string;
+}
+
+export interface BundledSkillSource {
+  readonly kind: "bundled";
+  /** Package-relative path containing the skill directory. */
+  readonly path: string;
+}
+
+export function describeSkillSource(source: SkillSource): string {
+  return source.kind === "git"
+    ? `${source.repo}@${source.ref} (${source.path})`
+    : `Nix package (${source.path})`;
 }
 
 export interface SkillCatalogEntry {

@@ -9,6 +9,7 @@ import { SecurityHooksInstaller } from "../core/security/security-hooks-installe
 import { getMcpStatus } from "../core/mcp/mcp-service.js";
 import { resolveCommandAvailability } from "../core/commands/workflow-command-catalog.js";
 import { skillCatalog } from "../core/skills/skill-catalog.js";
+import { describeSkillSource } from "../core/skills/skill-contracts.js";
 import type { SkillAgent } from "../core/skills/skill-contracts.js";
 import { getSkillStatus, installSkill, previewSkill, removeSkill } from "../core/skills/skill-installer.js";
 
@@ -218,7 +219,7 @@ async function manageProjectSkills(terminal: ReturnType<typeof createInterface>)
       .map((status) => `${status.agent}: ${status.state}`)
       .join(", ");
     stdout.write(`\n  ${entry.name}\n`);
-    stdout.write(`  Source: ${entry.source.repo}@${entry.source.ref} (${entry.source.path})\n`);
+    stdout.write(`  Source: ${describeSkillSource(entry.source)}\n`);
     stdout.write(`  License: ${entry.license}; version: ${entry.version}\n`);
     stdout.write(`  Compatible agents: ${entry.compatibleAgents.join(", ")}\n`);
     stdout.write(`  Dependencies: ${entry.dependencies.length === 0 ? "none" : entry.dependencies.map((item) => item.description).join("; ")}\n`);

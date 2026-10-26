@@ -2,7 +2,7 @@ import type { StackState } from "../config/stack-state.js";
 import type { SkillAgent } from "../skills/skill-contracts.js";
 import type { WorkflowKind } from "../workflows/workflow-contracts.js";
 
-export type WorkflowCommandId = "new-feat" | "refactor" | "new-idea" | "new-project";
+export type WorkflowCommandId = "new-feat" | "refactor" | "new-idea" | "new-project" | "araxys" | "security-audit";
 
 export interface WorkflowCommandDefinition {
   readonly id: WorkflowCommandId;
@@ -12,6 +12,7 @@ export interface WorkflowCommandDefinition {
   readonly kind: "workflow" | "skill" | "generator";
   readonly workflowKind?: WorkflowKind;
   readonly skillId?: string;
+  readonly codexSkillId?: string;
   readonly requiredComponents: ReadonlyArray<string>;
   readonly slashAgents: ReadonlyArray<SkillAgent>;
   readonly cliAgents: ReadonlyArray<SkillAgent>;
@@ -76,11 +77,36 @@ export const workflowCommandCatalog: ReadonlyArray<WorkflowCommandDefinition> = 
     slashAgents: ["opencode", "codex"],
     cliAgents: ["opencode", "codex"],
     artifacts: [".agents/skills/<skill-id>/SKILL.md", ".codex/agents/<agent-id>.toml", ".opencode/agents/<agent-id>.md"]
+  },
+  {
+    id: "araxys",
+    slash: "/araxys",
+    name: "Araxys integration",
+    description: "Integrate the installed Araxys security library into this consuming application.",
+    kind: "skill",
+    skillId: "araxys-integration",
+    codexSkillId: "araxys-integration",
+    requiredComponents: [],
+    slashAgents: ["opencode", "codex"],
+    cliAgents: ["opencode", "codex"],
+    artifacts: []
+  },
+  {
+    id: "security-audit",
+    slash: "/security-audit",
+    name: "Security Audit",
+    description: "Run the installed Cloudflare Security Audit skill against this project with explicit scope and coverage-first findings.",
+    kind: "skill",
+    skillId: "security-audit",
+    requiredComponents: [],
+    slashAgents: ["opencode", "codex"],
+    cliAgents: ["opencode", "codex"],
+    artifacts: []
   }
 ];
 
 export function isWorkflowCommandId(value: unknown): value is WorkflowCommandId {
-  return value === "new-feat" || value === "refactor" || value === "new-idea" || value === "new-project";
+  return value === "new-feat" || value === "refactor" || value === "new-idea" || value === "new-project" || value === "araxys" || value === "security-audit";
 }
 
 export function findWorkflowCommand(id: string): WorkflowCommandDefinition | undefined {

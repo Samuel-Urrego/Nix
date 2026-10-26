@@ -58,7 +58,7 @@ test("workflow:commands reports the catalog and surface availability as JSON", a
       cliAvailable: boolean;
       slashAvailable: boolean;
     }>;
-    assert.equal(catalog.length, 4);
+    assert.equal(catalog.length, 6);
     const newFeat = catalog.find((item) => item.command.slash === "/new-feat");
     assert.ok(newFeat);
     assert.equal(newFeat.cliAvailable, true);
@@ -69,6 +69,14 @@ test("workflow:commands reports the catalog and surface availability as JSON", a
     const newProject = catalog.find((item) => item.command.slash === "/new-project");
     assert.ok(newProject);
     assert.equal(newProject.cliAvailable, true);
+    const araxys = catalog.find((item) => item.command.slash === "/araxys");
+    assert.ok(araxys);
+    assert.equal(araxys.cliAvailable, true);
+    assert.equal(araxys.slashAvailable, true);
+    const securityAudit = catalog.find((item) => item.command.slash === "/security-audit");
+    assert.ok(securityAudit);
+    assert.equal(securityAudit.cliAvailable, true);
+    assert.equal(securityAudit.slashAvailable, true);
   } finally {
     await rm(value.directory, { recursive: true, force: true });
   }

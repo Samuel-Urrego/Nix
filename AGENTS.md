@@ -28,6 +28,9 @@ Use `agents/skill-style-guide.md` as the normative guide for new project skills.
 
 - `nix-core` (`skills/nix-core/SKILL.md`) — Nix architecture and safe-delivery conventions; activate for Nix AI Stack work.
 - `blind-judge` (`skills/blind-judge/SKILL.md`) — isolated idea evaluation with pro/con groups and five neutral evaluators; optional decision support.
+- `araxys-integration` (`skills/araxys-integration/SKILL.md`) — version-verified, consumer-only Araxys integration; never modifies the library repository.
+- `python-fastapi` (`skills/python-fastapi/SKILL.md`) — uv, async FastAPI, explicit validation, and pytest conventions.
+- `mcp-authoring` (`skills/mcp-authoring/SKILL.md`) — MCP tool contracts, input validation, side-effect boundaries, and adapter tests.
 
 ## Agent strategy
 

@@ -122,7 +122,7 @@ Component lifecycle actions are `preview`, `install`, `update`, `backup`, `list-
 | Codex Nix Core skill lifecycle | Available; installed under `~/.agents/skills/nix-core` |
 | Global destructive-operation safeguards | Available for Codex and OpenCode; opt-in, Windows shells only |
 | Optional SDD/TDD workflows | Available as independent settings with resumable project-keyed records under the Nix home; execution is exposed through the workflow command catalog |
-| Workflow command catalog | `/new-feat` (SDD), `/refactor` (TDD), `/new-idea` (blind-judge), and `/new-project` (project skill/agent generator); CLI executor, global OpenCode commands, and Codex user skills |
+| Workflow command catalog | `/new-feat` (SDD), `/refactor` (TDD), `/new-idea` (blind-judge), `/new-project` (project skill/agent generator), `/araxys` (consumer-only integration), and `/security-audit` (coverage-first audit); CLI executor, global OpenCode commands, and Codex user skills |
 | Optional MCP integrations | Playwright, CodeGraph, and Engram available globally for OpenCode and Codex via CLI |
 | Stack-aware skill catalog | Seven external skills pinned by commit, installed globally for OpenCode and Codex; compatibility matrix and authoring path available |
 | Blind-judge idea evaluation | Isolated pro/con groups, five neutral evaluators, bounded synthesis, audit hashes, and a project skill; available through `/new-idea` and `workflow:command` |

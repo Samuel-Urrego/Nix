@@ -8,8 +8,8 @@ function installPaths(id: string) {
 }
 
 /**
- * Requested external skills with confirmed upstream provenance.
- * Refs are pinned commit SHAs; advance them only through a reviewed catalog change.
+ * Requested skills with truthful upstream or bundled-package provenance.
+ * Git refs are pinned commit SHAs; advance them only through a reviewed catalog change.
  */
 export const skillCatalog: ReadonlyArray<SkillCatalogEntry> = [
   {
@@ -163,6 +163,32 @@ export const skillCatalog: ReadonlyArray<SkillCatalogEntry> = [
     installPaths: installPaths("accessibility"),
     updatePolicy: "pinned",
     stackTags: ["frontend", "accessibility", "review"]
+  },
+  {
+    id: "python-fastapi",
+    name: "Python and FastAPI",
+    description: "Build async FastAPI APIs with explicit Pydantic validation, uv, and pytest conventions.",
+    source: { kind: "bundled", path: "skills/python-fastapi" },
+    license: "Apache-2.0",
+    version: "1.0.0",
+    dependencies: [],
+    compatibleAgents: ["opencode", "codex"],
+    installPaths: installPaths("python-fastapi"),
+    updatePolicy: "pinned",
+    stackTags: ["backend", "python", "fastapi", "testing"]
+  },
+  {
+    id: "araxys-integration",
+    name: "Araxys Integration",
+    description: "Integrate the installed Araxys security library into consuming FastAPI applications without modifying Araxys.",
+    source: { kind: "bundled", path: "skills/araxys-integration" },
+    license: "Apache-2.0",
+    version: "1.0.0",
+    dependencies: [],
+    compatibleAgents: ["opencode", "codex"],
+    installPaths: installPaths("araxys-integration"),
+    updatePolicy: "pinned",
+    stackTags: ["backend", "python", "fastapi", "security"]
   }
 ];
 
