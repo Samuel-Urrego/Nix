@@ -1,0 +1,24 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "codegraph": {
+        "type": "local",
+        "command": [
+          "node",
+          "node_modules/@astudioplus/codegraph-mcp/bin/codegraph-mcp.js",
+          "--workspace",
+          ".",
+          "--profile",
+          "core",
+          "--graph-only"
+        ],
+        "cwd": ".",
+        "environment": {
+          "CODEGRAPH_TELEMETRY": "off"
+        },
+        "timeout": 30000
+      }
+    }
+  }
+}
