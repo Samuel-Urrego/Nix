@@ -42,4 +42,4 @@ Return:
 
 ## References
 
-- `C:\Proyectos\Nix\docs\skill-style-guide.md`
+- `agents/skill-style-guide.md`

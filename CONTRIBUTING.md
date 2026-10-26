@@ -15,11 +15,11 @@ Nix is open source, but it is also opinionated. The goal is not to accept random
 
 Read these first:
 
-- `C:\Proyectos\Nix\README.md`
-- `C:\Proyectos\Nix\docs\product-vision.md`
-- `C:\Proyectos\Nix\docs\architecture.md`
-- `C:\Proyectos\Nix\docs\roadmap.md`
-- `C:\Proyectos\Nix\AGENTS.md`
+- `README.md`
+- `agents/product-vision.md`
+- `agents/architecture.md`
+- `docs/roadmap.md`
+- `AGENTS.md`
 
 ## Contribution rules
 

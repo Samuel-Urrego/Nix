@@ -8,23 +8,40 @@
     "node": ">=20.11.0"
   },
   "bin": {
-    "nix": "./dist/cli/index.js"
+    "nix-ai": "./dist/cli/index.js"
   },
+  "files": [
+    "dist",
+    "agents",
+    "skills",
+    "docs",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md",
+    "CODE_OF_CONDUCT.md"
+  ],
   "scripts": {
     "dev": "tsc -p tsconfig.json --watch",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "tsx --import ./test/setup.ts --test test/**/*.test.ts",
     "start": "node dist/cli/index.js",
     "config:init": "npm run build && node dist/cli/index.js config:init",
     "doctor": "npm run build && node dist/cli/index.js doctor",
     "reviewers:list": "npm run build && node dist/cli/index.js reviewers:list",
     "reviewers:run": "npm run build && node dist/cli/index.js reviewers:run",
-    "stack:scan": "npm run build && node dist/cli/index.js stack:scan",
-    "arch:select": "npm run build && node dist/cli/index.js arch:select"
+    "arch:select": "npm run build && node dist/cli/index.js arch:select",
+    "release:manifest": "npm run build && node dist/cli/index.js release:manifest --root=. --out=dist/release-manifest.json",
+    "release:verify": "node dist/cli/index.js release:verify --root=. --manifest=dist/release-manifest.json",
+    "release:check": "npm run typecheck && npm test && npm run release:manifest && npm run release:verify"
   },
   "devDependencies": {
+    "@astudioplus/codegraph-mcp": "0.21.0",
     "@types/node": "^24.0.0",
     "tsx": "^4.20.3",
     "typescript": "^5.9.2"
+  },
+  "allowScripts": {
+    "@astudioplus/codegraph-mcp@0.21.0": true
   }
 }
