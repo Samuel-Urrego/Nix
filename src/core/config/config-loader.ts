@@ -1,14 +1,14 @@
-import { access, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { getNixConfigPath } from "./global-paths.js";
 import { defaultNixConfig, type NixConfig } from "./nix-config.js";
 
-const CONFIG_FILE_NAME = "nix.config.json";
-
 export async function loadNixConfig(
-  baseDirectory: string = process.cwd()
+  _baseDirectory: string = process.cwd(),
+  environment: NodeJS.ProcessEnv = process.env
 ): Promise<{ readonly config: NixConfig; readonly source: string }> {
-  const configPath = path.join(baseDirectory, CONFIG_FILE_NAME);
+  const configPath = getNixConfigPath(environment);
 
   try {
     await access(configPath);
@@ -40,15 +40,17 @@ export async function loadNixConfig(
 }
 
 export async function writeDefaultNixConfig(
-  baseDirectory: string,
-  overrides: Partial<NixConfig> = {}
+  _baseDirectory: string,
+  overrides: Partial<NixConfig> = {},
+  environment: NodeJS.ProcessEnv = process.env
 ): Promise<string> {
-  const configPath = path.join(baseDirectory, CONFIG_FILE_NAME);
+  const configPath = getNixConfigPath(environment);
   const config: NixConfig = {
     ...defaultNixConfig,
     ...overrides
   };
 
+  await mkdir(path.dirname(configPath), { recursive: true });
   await writeFile(`${configPath}`, `${JSON.stringify(config, null, 2)}\n`, "utf8");
   return configPath;
 }
