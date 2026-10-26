@@ -1,6 +1,6 @@
 # Optional SDD and TDD workflows
 
-Nix can enable Spec-Driven Development (SDD) and Test-Driven Development (TDD) independently. Settings, workflow contracts, project-local records, and the workflow command catalog are available; OpenCode slash commands are generated project-locally, while Codex remains CLI-only because custom slash prompts are deprecated upstream.
+Nix can enable Spec-Driven Development (SDD) and Test-Driven Development (TDD) independently. Settings, workflow contracts, project-keyed records, and the workflow command catalog are global; OpenCode receives commands under its config directory, and Codex receives user skills under `~/.agents/skills`.
 
 ## Independent settings
 
@@ -9,29 +9,32 @@ Both workflows are disabled by default and do not affect each other.
 - **TUI:** run `nix-ai`, open **Workflows**, toggle SDD and/or TDD, then choose **Save preferences**.
 - **CLI:** `nix-ai workflow:configure --sdd=on --tdd=off --yes`.
 
-Settings persist in the stack state file (`%APPDATA%\Nix AI Stack\state.json` on Windows) as explicit `workflows.sdd` and `workflows.tdd` booleans. Older state files without that field derive the flags from the selected `workflow.sdd` and `workflow.tdd` components, so upgrading does not invalidate existing preferences.
+Settings persist in the global stack state file (`<nix-home>/state.json`, which is `%APPDATA%\Nix AI Stack\state.json` on Windows) as explicit `workflows.sdd` and `workflows.tdd` booleans. Older state files without that field derive the flags from the selected `workflow.sdd` and `workflow.tdd` components, so upgrading does not invalidate existing preferences.
 
 Starting a disabled workflow fails with a message that names the setting to enable.
 
 ## Workflow commands
 
-The catalog exposes `/new-feat` (SDD), `/refactor` (TDD), and `/new-idea` (blind-judge). Discover availability with:
+The catalog exposes `/new-feat` (SDD), `/refactor` (TDD), `/new-idea` (blind-judge), and `/new-project` (project asset generator). Discover availability with:
 
 ```text
 nix-ai workflow:commands
 ```
 
-OpenCode users can install project-local slash commands:
+Install the global agent surfaces:
 
 ```text
 nix-ai workflow:install-commands --agent=opencode --root=. --yes
+nix-ai workflow:install-commands --agent=codex --root=. --yes
 ```
 
-Codex custom slash prompts are deprecated and user-global, so Codex uses the CLI executor instead. See [the workflow command catalog](command-catalog.md) for command syntax, prerequisites, artifacts, and recovery.
+OpenCode writes commands under `<opencode-config-directory>/commands`; Codex writes user skills under `~/.agents/skills`. See [the workflow command catalog](command-catalog.md) for command syntax, prerequisites, artifacts, and recovery.
+
+`/new-project` uses repository evidence to propose one project skill and only genuinely distinct specialist agents. It previews exact paths and contents, waits for confirmation, and preserves existing targets. The shared skill belongs in `.agents/skills/`; native project agent definitions belong in `.codex/agents/` and `.opencode/agents/`.
 
 ## Workflow records
 
-Each run is a project-local JSON record under `.nix/workflows/<id>.json`. Records survive process restarts, so an interrupted workflow can be resumed from its persisted current step. A record contains:
+Each run is a project-keyed JSON record under `<nix-home>/projects/<project-key>/workflows/<id>.json`. Records survive process restarts, so an interrupted workflow can be resumed from its persisted current step. A record contains:
 
 - `schemaVersion`, `id`, `kind` (`sdd` or `tdd`), `title`, `status` (`active` or `completed`);
 - `currentStep` (`null` when complete);
@@ -85,7 +88,7 @@ nix-ai workflow:resume --id=<id> --root=.
 
 ## Current limits
 
-- Workflow commands are catalogued and executable; OpenCode slash commands install project-locally. Codex custom slash prompts are deprecated upstream and remain CLI-only in Nix.
-- Workflow records are project-local files and are not encrypted or validated against a remote service.
+- Workflow commands are catalogued and executable; OpenCode commands and Codex user skills install globally.
+- Workflow records are project-keyed files under the Nix home and are not encrypted or validated against a remote service.
 - `workflow:advance` records what the user reports as evidence; it does not run tests or verify claims by itself.
-- The TUI configures enablement and discovers commands; executing and installing commands happens through the CLI or the generated OpenCode command.
+- The TUI configures enablement and discovers commands; executing and installing commands happens through the CLI or the generated agent surface.

@@ -58,7 +58,7 @@ test("workflow:commands reports the catalog and surface availability as JSON", a
       cliAvailable: boolean;
       slashAvailable: boolean;
     }>;
-    assert.equal(catalog.length, 3);
+    assert.equal(catalog.length, 4);
     const newFeat = catalog.find((item) => item.command.slash === "/new-feat");
     assert.ok(newFeat);
     assert.equal(newFeat.cliAvailable, true);
@@ -66,6 +66,26 @@ test("workflow:commands reports the catalog and surface availability as JSON", a
     const refactor = catalog.find((item) => item.command.slash === "/refactor");
     assert.ok(refactor);
     assert.equal(refactor.cliAvailable, false);
+    const newProject = catalog.find((item) => item.command.slash === "/new-project");
+    assert.ok(newProject);
+    assert.equal(newProject.cliAvailable, true);
+  } finally {
+    await rm(value.directory, { recursive: true, force: true });
+  }
+});
+
+test("workflow:command runs new-project without a title and returns the project blueprint", async () => {
+  const value = await fixture();
+  try {
+    await mkdir(value.projectRoot, { recursive: true });
+    await writeState(value.appData, state({ workflows: { sdd: false, tdd: false } }));
+    const result = runCli(
+      ["workflow:command", "--id=new-project", "--yes", `--root=${value.projectRoot}`],
+      value.appData
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /\.agents\/skills\/<skill-id>\/SKILL\.md/);
+    assert.match(result.stdout, /wait for explicit user confirmation/i);
   } finally {
     await rm(value.directory, { recursive: true, force: true });
   }

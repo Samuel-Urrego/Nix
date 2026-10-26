@@ -103,13 +103,37 @@ test("new-idea renders the blind-judge path without creating a workflow record",
   }
 });
 
+test("new-project generates an evidence-first project skill and native agent blueprint without creating a workflow", async () => {
+  const { root, restoreHome } = await fixture();
+  try {
+    const result = await runWorkflowCommand(
+      root,
+      state({ selectedComponents: ["agent.opencode"], workflows: { sdd: false, tdd: false } }),
+      "new-project",
+      ""
+    );
+    assert.equal(result.workflow, null);
+    assert.match(result.prompt, /\.agents\/skills\/<skill-id>\/SKILL\.md/);
+    assert.match(result.prompt, /\.codex\/agents\//);
+    assert.match(result.prompt, /\.opencode\/agents\//);
+    assert.match(result.prompt, /evidence/i);
+    assert.match(result.prompt, /Do not overwrite/i);
+    assert.match(result.prompt, /preview/i);
+    assert.deepEqual(await fileList(getProjectWorkflowsDirectory(root)), []);
+  } finally {
+    restoreHome();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("OpenCode command installation writes only available managed commands", async () => {
   const { root, restoreHome } = await fixture();
   try {
     const result = await installAgentCommands(root, state(), "opencode");
     assert.deepEqual(result.installed, [
       ".config/opencode/commands/new-feat.md",
-      ".config/opencode/commands/new-idea.md"
+      ".config/opencode/commands/new-idea.md",
+      ".config/opencode/commands/new-project.md"
     ]);
     assert.deepEqual(result.removed, []);
     assert.equal(result.skipped.some((item) => item.path.endsWith("refactor.md")), true);
@@ -173,7 +197,8 @@ test("Codex command installation writes and removes user skills", async () => {
     const installed = await installAgentCommands(root, state(), "codex");
     assert.deepEqual(installed.installed, [
       ".agents/skills/new-feat/SKILL.md",
-      ".agents/skills/new-idea/SKILL.md"
+      ".agents/skills/new-idea/SKILL.md",
+      ".agents/skills/new-project/SKILL.md"
     ]);
     assert.equal(installed.skipped.some((item) => item.path.endsWith("refactor/SKILL.md")), true);
 

@@ -506,10 +506,10 @@ async function runWorkflowCommandCli(): Promise<void> {
   const args = process.argv.slice(3);
   const id = readOption(args, "id");
   if (!isWorkflowCommandId(id)) {
-    throw new Error("Provide --id=new-feat, --id=refactor, or --id=new-idea.");
+    throw new Error("Provide --id=new-feat, --id=refactor, --id=new-idea, or --id=new-project.");
   }
-  const title = readOption(args, "title");
-  if (!title) throw new Error(`Provide --title="..." for ${id}.`);
+  const title = readOption(args, "title") ?? "";
+  if (!title && id !== "new-project") throw new Error(`Provide --title="..." for ${id}.`);
   requireYes(args, `run the ${id} command`);
   const root = path.resolve(resolveRootFromArgs(args));
   const state = await loadStackState();
@@ -848,8 +848,8 @@ async function printHelp(): Promise<void> {
   console.log("  workflow:advance Record evidence for the current step (--id=<id> --evidence=\"...\" --yes)");
   console.log("  workflow:skip    Skip TDD RED with a reason (--id=<id> --reason=\"...\" --yes)");
   console.log("  workflow:resume  Show the persisted next action for a workflow (--id=<id>)");
-  console.log("  workflow:commands  List /new-feat, /refactor, and /new-idea with CLI/slash availability (--json)");
-  console.log("  workflow:command   Run a catalog command (--id=... --title=\"...\" --root=<project> --yes)");
+  console.log("  workflow:commands  List /new-feat, /refactor, /new-idea, and /new-project with CLI/slash availability (--json)");
+  console.log("  workflow:command   Run a catalog command (--id=... [--title=\"...\"] --root=<project> --yes)");
   console.log("  workflow:install-commands  Install/remove global OpenCode commands or Codex skills");
   console.log("                   --agent=opencode|codex --root=<project> [--remove] --yes");
   console.log("  mcp:list         List optional global MCP integrations");

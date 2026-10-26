@@ -19,9 +19,9 @@ function state(overrides: Partial<StackState> = {}): StackState {
   };
 }
 
-test("the command catalog declares the three requested commands and their mappings", () => {
-  assert.equal(workflowCommandCatalog.length, 3);
-  assert.deepEqual(workflowCommandCatalog.map((command) => command.slash), ["/new-feat", "/refactor", "/new-idea"]);
+test("the command catalog declares the supported commands and their mappings", () => {
+  assert.equal(workflowCommandCatalog.length, 4);
+  assert.deepEqual(workflowCommandCatalog.map((command) => command.slash), ["/new-feat", "/refactor", "/new-idea", "/new-project"]);
 
   const newFeat = getCommandAvailability(state(), "new-feat");
   assert.equal(newFeat.command.workflowKind, "sdd");
@@ -37,7 +37,22 @@ test("the command catalog declares the three requested commands and their mappin
   assert.equal(newIdea.command.skillId, "blind-judge");
   assert.deepEqual(newIdea.command.requiredComponents, []);
   assert.equal(isWorkflowCommandId("new-feat"), true);
+  assert.equal(isWorkflowCommandId("new-project"), true);
   assert.equal(isWorkflowCommandId("unknown"), false);
+});
+
+test("new-project is available to OpenCode and Codex without enabling SDD or TDD", () => {
+  const openCode = getCommandAvailability(state({ workflows: { sdd: false, tdd: false } }), "new-project");
+  assert.equal(openCode.cliAvailable, true);
+  assert.equal(openCode.slashAvailable, true);
+
+  const codex = getCommandAvailability(state({
+    selectedComponents: ["agent.codex"],
+    agentTargets: ["codex"],
+    workflows: { sdd: false, tdd: false }
+  }), "new-project");
+  assert.equal(codex.cliAvailable, true);
+  assert.equal(codex.slashAvailable, true);
 });
 
 test("availability requires a selected and installed agent component", () => {

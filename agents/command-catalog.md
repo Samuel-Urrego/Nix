@@ -1,12 +1,13 @@
 # Workflow Command Catalog
 
-Nix exposes three requested workflow commands from one catalog:
+Nix exposes workflow, skill, and project-generation commands from one catalog:
 
 | Slash | Purpose | Maps to | Required components | CLI agents | Slash agents | Expected artifact |
 |-------|---------|---------|---------------------|------------|--------------|-------------------|
-| `/new-feat` | Start a feature with specification and task breakdown | SDD workflow | `workflow.sdd` selected and enabled | OpenCode, Codex | OpenCode | `.nix/workflows/<id>.json` |
-| `/refactor` | Start a behavior-preserving refactor | TDD workflow | `workflow.tdd` selected and enabled | OpenCode, Codex | OpenCode | `.nix/workflows/<id>.json` |
-| `/new-idea` | Evaluate an idea with isolated judges | `blind-judge` skill | None | OpenCode, Codex | OpenCode | `.nix/ideas/<slug>.json` |
+| `/new-feat` | Start a feature with specification and task breakdown | SDD workflow | `workflow.sdd` selected and enabled | OpenCode, Codex | OpenCode, Codex | `<nix-home>/projects/<project-key>/workflows/<id>.json` |
+| `/refactor` | Start a behavior-preserving refactor | TDD workflow | `workflow.tdd` selected and enabled | OpenCode, Codex | OpenCode, Codex | `<nix-home>/projects/<project-key>/workflows/<id>.json` |
+| `/new-idea` | Evaluate an idea with isolated judges | `blind-judge` skill | None | OpenCode, Codex | OpenCode, Codex | `<nix-home>/projects/<project-key>/ideas/<slug>.json` |
+| `/new-project` | Analyze the current repository and propose its skill and evidence-backed specialist agents | Project asset generator | None | OpenCode, Codex | OpenCode, Codex | `.agents/skills/<skill-id>/SKILL.md`, `.codex/agents/<agent-id>.toml`, `.opencode/agents/<agent-id>.md` |
 
 The catalog is implemented in `src/core/commands/workflow-command-catalog.ts`. Availability, execution, and installation live beside it; no surface invents its own command list.
 
@@ -16,9 +17,9 @@ The catalog is implemented in `src/core/commands/workflow-command-catalog.ts`. A
 |---------|---------|----------------|-----------|
 | TUI actions | Select agents and components, enable SDD/TDD, discover command availability | Yes, only when saving preferences | Configuration and discovery |
 | CLI subcommands | List, execute, install, and remove workflow commands | Yes, with explicit `--yes` | Authoritative execution |
-| Agent slash commands | OpenCode prompt entry points generated from the catalog | Yes, through the CLI command they instruct the agent to run | Convenience layer over the CLI |
+| Agent slash commands | Global OpenCode commands and Codex user skills generated from the catalog | Yes, through the CLI command they instruct the agent to run | Convenience layer over the CLI |
 
-The TUI does not execute workflows. The CLI does not claim that a command was installed for an agent that does not support it. An OpenCode slash command is a prompt that must call the CLI; the CLI remains the policy enforcement point.
+The TUI does not execute workflows. The CLI does not claim that a command was installed for an agent that does not support it. An agent command is a prompt that must call the CLI; the CLI remains the policy enforcement point.
 
 ## Availability rules
 
@@ -36,7 +37,7 @@ nix-ai workflow:commands
 nix-ai workflow:commands --json
 ```
 
-A workflow command that is disabled or missing a component is unavailable. The CLI refuses before writing a workflow record. An existing OpenCode command file for an unavailable command is removed on the next install only when it carries the Nix-managed marker.
+A workflow command that is disabled or missing a component is unavailable. The CLI refuses before writing a workflow record. An existing OpenCode command file or Codex skill for an unavailable command is removed on the next install only when it carries the Nix-managed marker.
 
 ## Syntax
 
@@ -45,9 +46,12 @@ nix-ai workflow:commands
 nix-ai workflow:command --id=new-feat --title="Guided onboarding" --root=. --yes
 nix-ai workflow:command --id=refactor --title="Split the billing service" --root=. --yes
 nix-ai workflow:command --id=new-idea --title="Adopt a new onboarding flow" --root=. --yes
+nix-ai workflow:command --id=new-project --root=. --yes
 
 nix-ai workflow:install-commands --agent=opencode --root=. --yes
 nix-ai workflow:install-commands --agent=opencode --root=. --remove --yes
+nix-ai workflow:install-commands --agent=codex --root=. --yes
+nix-ai workflow:install-commands --agent=codex --root=. --remove --yes
 ```
 
 The workflow commands map directly to the existing workflow runner:
@@ -60,14 +64,14 @@ nix-ai workflow:skip --id=<id> --reason="..." --root=. --yes
 
 `RED` remains the only skippable workflow step and requires a persisted reason.
 
-## OpenCode slash commands
+## OpenCode commands
 
-Install writes project-local files under:
+Install writes global files under `<opencode-config-directory>/commands`:
 
 ```text
-.opencode/commands/new-feat.md
-.opencode/commands/refactor.md
-.opencode/commands/new-idea.md
+commands/new-feat.md
+commands/refactor.md
+commands/new-idea.md
 ```
 
 Each file:
@@ -84,29 +88,43 @@ Invoke them from OpenCode:
 /new-feat Guided onboarding
 /refactor Split the billing service
 /new-idea Adopt a new onboarding flow
+/new-project
 ```
 
 Installation refuses to overwrite a file without the marker. Removal deletes only marker-bearing files.
 
-## Codex behavior
+## Codex user skills
 
-Codex custom prompts are deprecated and are loaded from user scope, not a project repository. Nix does not write Codex slash prompt files and does not claim project-local slash support.
+Codex custom prompts are deprecated upstream. Nix installs Codex user skills instead:
 
-Codex users use the CLI executor:
+```text
+~/.agents/skills/new-feat/SKILL.md
+~/.agents/skills/refactor/SKILL.md
+~/.agents/skills/new-idea/SKILL.md
+```
+
+Each skill:
+
+- has YAML frontmatter with `name` and `description`;
+- carries the same `<!-- nix-ai:workflow-command id=<id> -->` marker;
+- instructs Codex to run the matching `nix-ai workflow:command ... --root=. --yes`;
+- stops and reports the exact error when the workflow is disabled or unavailable.
+
+Codex users can also run the CLI executor directly:
 
 ```text
 nix-ai workflow:command --id=new-feat --title="Guided onboarding" --root=. --yes
+nix-ai workflow:command --id=new-project --root=. --yes
 ```
-
-or invoke a Codex skill. Source: <https://developers.openai.com/codex/custom-prompts>.
 
 ## Artifacts and recovery
 
 | Command | Artifact | Recovery |
 |---------|----------|----------|
-| `/new-feat` | `.nix/workflows/<id>.json` | `workflow:resume --id=<id>`; continue with evidence |
-| `/refactor` | `.nix/workflows/<id>.json` | `workflow:resume --id=<id>`; skip only RED with a reason |
-| `/new-idea` | `.nix/ideas/<slug>.json` (`JudgmentResult`) | Read the saved result; rerun the command with the same evidence if needed |
+| `/new-feat` | `<nix-home>/projects/<project-key>/workflows/<id>.json` | `workflow:resume --id=<id>`; continue with evidence |
+| `/refactor` | `<nix-home>/projects/<project-key>/workflows/<id>.json` | `workflow:resume --id=<id>`; skip only RED with a reason |
+| `/new-idea` | `<nix-home>/projects/<project-key>/ideas/<slug>.json` (`JudgmentResult`) | Read the saved result; rerun the command with the same evidence if needed |
+| `/new-project` | Project-local skill and native agent definitions | Inspect the preview; confirm before writing; existing destinations are never overwritten |
 
 A workflow record is the durable source of truth. Chat history is not required to resume. `/new-idea` does not create a workflow record; the audited judgment JSON is the durable artifact.
 
@@ -122,10 +140,11 @@ A workflow record is the durable source of truth. Chat history is not required t
 ## Limits
 
 - Availability is computed from stack state, not from a live inspection of the agent's current configuration.
-- Only OpenCode has project-local slash command installation in this phase.
+- Both OpenCode commands and Codex user skills are global surfaces; neither is written into the project.
 - `/new-idea` depends on `skills/blind-judge/SKILL.md` and the `JudgmentResult` contract; it does not execute AI judges by itself.
+- `/new-project` is a project-scoped generator prompt; it does not create global agent configuration or invent specialist roles without repository evidence.
 - The TUI discovers commands but does not execute or install them.
-- A slash command is still an agent instruction. The CLI executor is the enforcing boundary.
+- A slash command or skill is still an agent instruction. The CLI executor is the enforcing boundary.
 
 ## References
 

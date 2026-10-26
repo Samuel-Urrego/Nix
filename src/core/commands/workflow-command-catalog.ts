@@ -2,14 +2,14 @@ import type { StackState } from "../config/stack-state.js";
 import type { SkillAgent } from "../skills/skill-contracts.js";
 import type { WorkflowKind } from "../workflows/workflow-contracts.js";
 
-export type WorkflowCommandId = "new-feat" | "refactor" | "new-idea";
+export type WorkflowCommandId = "new-feat" | "refactor" | "new-idea" | "new-project";
 
 export interface WorkflowCommandDefinition {
   readonly id: WorkflowCommandId;
   readonly slash: string;
   readonly name: string;
   readonly description: string;
-  readonly kind: "workflow" | "skill";
+  readonly kind: "workflow" | "skill" | "generator";
   readonly workflowKind?: WorkflowKind;
   readonly skillId?: string;
   readonly requiredComponents: ReadonlyArray<string>;
@@ -65,11 +65,22 @@ export const workflowCommandCatalog: ReadonlyArray<WorkflowCommandDefinition> = 
     slashAgents: ["opencode", "codex"],
     cliAgents: ["opencode", "codex"],
     artifacts: ["<nix-home>/projects/<project-key>/ideas/<slug>.json"]
+  },
+  {
+    id: "new-project",
+    slash: "/new-project",
+    name: "New project",
+    description: "Analyze this repository and create its project skill and specialist agents.",
+    kind: "generator",
+    requiredComponents: [],
+    slashAgents: ["opencode", "codex"],
+    cliAgents: ["opencode", "codex"],
+    artifacts: [".agents/skills/<skill-id>/SKILL.md", ".codex/agents/<agent-id>.toml", ".opencode/agents/<agent-id>.md"]
   }
 ];
 
 export function isWorkflowCommandId(value: unknown): value is WorkflowCommandId {
-  return value === "new-feat" || value === "refactor" || value === "new-idea";
+  return value === "new-feat" || value === "refactor" || value === "new-idea" || value === "new-project";
 }
 
 export function findWorkflowCommand(id: string): WorkflowCommandDefinition | undefined {
