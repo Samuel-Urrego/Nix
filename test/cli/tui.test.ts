@@ -156,3 +156,50 @@ test("TUI reports missing MCP prerequisites without offering to apply the change
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("declining agent, MCP, and command installs leaves all global targets unchanged", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "nix-tui-declines-"));
+  const prior = {
+    HOME: process.env.HOME,
+    USERPROFILE: process.env.USERPROFILE,
+    XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+    NIX_AI_HOME: process.env.NIX_AI_HOME
+  };
+  process.env.HOME = path.join(root, "home");
+  process.env.USERPROFILE = path.join(root, "home");
+  process.env.XDG_CONFIG_HOME = path.join(root, "config");
+  process.env.NIX_AI_HOME = path.join(root, "nix-home");
+  const output = new PassThrough();
+  let transcript = "";
+  output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
+  const answers = ["10", "1", "1", "1", "no", "", "b", "2", "1", "1", "1", "no", "", "b", "9", "1", "no", "", "12"];
+
+  try {
+    const statePath = getStackStatePath();
+    await mkdir(path.dirname(statePath), { recursive: true });
+    await writeFile(statePath, `${JSON.stringify({
+      schemaVersion: 1,
+      selectedComponents: ["agent.opencode"],
+      agentTargets: ["opencode"],
+      workflows: { sdd: true, tdd: true }
+    })}\n`, "utf8");
+    await runTui({ output, ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; } });
+
+    const targets = [
+      path.join(root, "config", "opencode", "agents", "araxys-specialist.md"),
+      path.join(root, "config", "opencode", "opencode.json"),
+      path.join(root, "config", "opencode", "commands", "araxys.md"),
+      path.join(root, "nix-home", "managed", "agents.json"),
+      path.join(root, "nix-home", "managed", "mcp.json")
+    ];
+    await Promise.all(targets.map((target) => assert.rejects(readFile(target, "utf8"), { code: "ENOENT" })));
+    assert.equal((transcript.match(/No files changed\./g) ?? []).length, 3);
+  } finally {
+    output.destroy();
+    for (const [key, value] of Object.entries(prior)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    await rm(root, { recursive: true, force: true });
+  }
+});
