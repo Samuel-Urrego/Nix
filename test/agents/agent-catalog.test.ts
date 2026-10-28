@@ -48,6 +48,17 @@ test("Nix orchestrator is an OpenCode primary agent that runs the ODD flow", () 
   }
   assert.match(nix.instructions, /Never claim a result you have not observed/i);
   assert.match(nix.instructions, /Push, pull requests, merges, and releases are the user's decisions/i);
+  // Nix must route work through the installed skills and the specialist roster.
+  for (const marker of [
+    "Skills",
+    "Specialist subagents",
+    "skill tool",
+    "never invent a skill id",
+    "araxys-specialist",
+    "python-fastapi-specialist",
+  ]) {
+    assert.match(nix.instructions, new RegExp(marker), `the orchestrator prompt must define ${marker}`);
+  }
   // Every other catalog entry stays a delegated subagent role.
   for (const entry of specialistAgentCatalog.filter((item) => item.id !== "nix")) {
     assert.equal(entry.mode, undefined, `${entry.id} must keep the default subagent mode`);

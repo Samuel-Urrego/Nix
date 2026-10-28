@@ -14,7 +14,7 @@ import { resolveCommandAvailability, workflowCommandCatalog } from "../core/comm
 import { installAgentCommands, removeAgentCommands } from "../core/commands/workflow-command-service.js";
 import { specialistAgentCatalog } from "../core/agents/agent-catalog.js";
 import { getSpecialistAgentStatus, installSpecialistAgent, previewSpecialistAgent, removeSpecialistAgent } from "../core/agents/agent-installer.js";
-import type { SpecialistAgentTarget } from "../core/agents/agent-contracts.js";
+import type { SpecialistAgentPlan, SpecialistAgentTarget } from "../core/agents/agent-contracts.js";
 import { skillCatalog } from "../core/skills/skill-catalog.js";
 import { describeSkillSource } from "../core/skills/skill-contracts.js";
 import type { SkillAgent } from "../core/skills/skill-contracts.js";
@@ -393,6 +393,26 @@ async function runGuidedInstall(
     }
     previewLines.push("");
   }
+
+  // Nix-owned specialist agents are part of the same one-step install: an orchestrator
+  // that cannot invoke its specialists is only half installed.
+  const agentPlans: Array<{ readonly plan: SpecialistAgentPlan; readonly agent: SpecialistAgentTarget; readonly name: string }> = [];
+  for (const agent of targets) {
+    for (const entry of specialistAgentCatalog) {
+      if (!entry.supportedAgents.includes(agent)) continue;
+      const plan = await previewSpecialistAgent(root, entry.id, agent, { catalog: specialistAgentCatalog });
+      agentPlans.push({ plan, agent, name: entry.name });
+    }
+  }
+  for (const agent of targets) {
+    const group = agentPlans.filter((item) => item.agent === agent);
+    if (group.length === 0) continue;
+    previewLines.push(`Agents [${agent}] → ${shortenPath(path.dirname(group[0]!.plan.targetPath))}`);
+    for (const item of group) {
+      previewLines.push(`  ${item.plan.action}: ${item.name}${item.plan.reason ? ` — ${item.plan.reason}` : ""}`);
+    }
+    previewLines.push("");
+  }
   if (runtimeNotes.size > 0) {
     previewLines.push("Runtime tools these skills use (install them only when you need the skill):");
     for (const note of runtimeNotes) previewLines.push(`  · ${note}`);
@@ -415,7 +435,7 @@ async function runGuidedInstall(
   }
 
   terminal.clear();
-  const progress = createProgress(output, "INSTALLING", targets.length + skillPlans.length);
+  const progress = createProgress(output, "INSTALLING", targets.length + skillPlans.length + agentPlans.length);
   let completed = 0;
   let installedCount = 0;
   let skippedCount = 0;
@@ -449,6 +469,26 @@ async function runGuidedInstall(
       } else {
         const result = await installSkill(root, plan.id, agent, skillOptions);
         installedCount += result.fileCount;
+      }
+    } catch (error) {
+      failures.push(`${label}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    completed += 1;
+    progress.update(completed, label);
+  }
+
+  for (const { plan, agent } of agentPlans) {
+    const label = `Agent ${plan.id} [${agent}]`;
+    progress.update(completed, label);
+    try {
+      if (plan.action === "already-current") {
+        skippedCount += 1;
+      } else if (plan.action === "install" || plan.action === "update") {
+        await installSpecialistAgent(root, plan.id, agent, { catalog: specialistAgentCatalog });
+        installedCount += 1;
+      } else {
+        skippedCount += 1;
+        failures.push(`${label}: ${plan.action}${plan.reason ? ` — ${plan.reason}` : ""}`);
       }
     } catch (error) {
       failures.push(`${label}: ${error instanceof Error ? error.message : String(error)}`);

@@ -6,7 +6,7 @@ export const specialistAgentCatalog: ReadonlyArray<SpecialistAgentDefinition> = 
     id: "nix",
     name: "Nix",
     description: "Orchestrate work with Organic Driven Development: authorize, explore, size, track, implement in work units, verify with evidence, and report.",
-    version: "1.0.0",
+    version: "1.1.0",
     source: "nix-catalog",
     ownership: "nix",
     supportedAgents: ["opencode"],
@@ -44,6 +44,26 @@ Delegate by trigger, never by habit:
 - VERIFY: only for a change that touches a high-consequence item - stored data, security, public contracts, concurrency, delivery, or untested behavior. Otherwise run the checks yourself.
 
 Keep the parent context thin: bounded output (counts, tails, summaries), short synthesized handoffs, no duplicate launches.
+
+## Skills
+
+This workspace has skills installed for you, and your harness lists them. That list is the truth: never invent a skill id, never advertise one that is not there.
+
+- Before domain work, load every skill whose description matches the request, using the skill tool. Load the skill before writing code, not after: the skill carries the conventions, hard rules, and decision gates for that domain.
+- A skill outranks your own habits. When a skill says how to name, structure, test, or deploy something, follow it. When you believe a skill is wrong, say so with evidence instead of silently ignoring it.
+- Multiple skills can apply at once. Load each one; do not pick a single favorite.
+- If nothing matches, say which expected skill was missing and proceed carefully instead of pretending a skill covered it.
+- Never restate a skill's rules from memory as if you had loaded it. Read it, then act.
+
+## Specialist subagents
+
+Your delegation tool lists the subagents available in this session, with their descriptions. That list is the roster; choose from it.
+
+- Nix ships domain specialists as delegated roles: araxys-specialist for consuming Araxys in a FastAPI app, and python-fastapi-specialist for Python and FastAPI work. More may exist. Use the roster your tool exposes, not this paragraph, as the source of truth.
+- Delegate when the domain genuinely belongs to a specialist: hand it a bounded unit with the exact files and allowed edit surfaces, the checks to run, the invariants and helpers to reuse, and which specs it covers. Ask it to report which specs it covered.
+- A specialist does not own the outcome. You verify its result, you own the decision, and you report to the user.
+- Never delegate to a subagent that does not exist, and never invent one to look thorough. When the roster has no fitting specialist, do the work inline and say why.
+- A specialist never expands scope, commits, pushes, or opens pull requests on its own.
 
 ## Work units and commits
 

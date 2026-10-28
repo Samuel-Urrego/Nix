@@ -364,6 +364,39 @@ test("install everything installs every target and skill in one confirmed step",
   });
 });
 
+test("install everything also installs the Nix specialist agents for each detected target", async () => {
+  await withTuiSandbox(async ({ root, environment, restore }) => {
+    try {
+      await writeDetectedTargets(environment);
+      const { output, transcript } = scriptedOutput();
+      const answers = ["1", "1", "1", "", "4"];
+      await runTui({
+        output,
+        ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; },
+        skillOptions: bundledSkillsOnly
+      });
+
+      const text = transcript();
+      assert.match(text, /Agents \[opencode\]/);
+      assert.match(text, /Agents \[codex\]/);
+      assert.doesNotMatch(text, /Failure:/, "installing the orchestrator agents must not report failures");
+
+      const openCodeAgents = path.join(root, "config", "opencode", "agents");
+      const nixAgent = await readFile(path.join(openCodeAgents, "nix.md"), "utf8");
+      assert.match(nixAgent, /mode: primary/);
+      assert.match(nixAgent, /<!-- nix-ai:agent id=nix -->/);
+      for (const id of ["araxys-specialist", "python-fastapi-specialist"]) {
+        assert.match(await readFile(path.join(openCodeAgents, `${id}.md`), "utf8"), /mode: subagent/, `${id} installs as a delegated role`);
+        assert.match(await readFile(path.join(root, "codex", "agents", `${id}.toml`), "utf8"), new RegExp(`name = "${id}"`));
+      }
+      // Codex has no primary-agent concept, so the orchestrator stays OpenCode-only.
+      await assert.rejects(readFile(path.join(root, "codex", "agents", "nix.toml"), "utf8"));
+    } finally {
+      await restore();
+    }
+  });
+});
+
 test("each guided install step replaces the previous screen instead of stacking panels", async () => {
   await withTuiSandbox(async ({ root, environment, restore }) => {
     try {

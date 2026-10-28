@@ -136,6 +136,21 @@ Risk: item 3 — the installed agent file is a prompt contract OpenCode consumes
 
 Checks: catalog test for id, target, mode, and flow markers; installer test asserting `mode: primary` renders while a default entry still renders `mode: subagent`.
 
+### S11 — Nix routes work through skills and specialist subagents
+
+User request: “Se supone que Nix debe saber usar todas las skills y saber invocar sub agentes especiliazados en esas skills”.
+
+Acceptance:
+- The orchestrator prompt tells Nix to treat the harness-provided skill list as the truth, load every matching skill before domain work, and never invent a skill id or restate one from memory.
+- The prompt tells Nix to delegate to the specialist roster exposed by its delegation tool, names the shipped specialists (`araxys-specialist`, `python-fastapi-specialist`), and forbids inventing a subagent to look thorough.
+- A specialist reports which specs it covered; Nix keeps the outcome, the verification, and the report.
+- The one-step install installs the Nix-owned specialist agents for every detected target, so the roster the prompt refers to actually exists. Agents Nix cannot support for a target (the OpenCode-only orchestrator on Codex) are never written there.
+- A re-run reports an already-current agent as preserved, not as a failure.
+
+Risk: item 5 — the one-step installer now writes agent files into the global agent directories of both targets.
+
+Checks: catalog test for the skill and roster protocol markers; TUI test asserting the one-step install writes `nix.md` as primary, both specialists as subagents, codex TOMLs for the Codex target, and no `nix.toml`.
+
 ## Tasks
 
 | ID | Specs | Route | Status | Commit / Evidence |
@@ -150,7 +165,7 @@ Checks: catalog test for id, target, mode, and flow markers; installer test asse
 | T8 | S8 | Inline | Done — catalog runtime tools are advisory and reported as guidance instead of blocking installation | RED/GREEN `skill-catalog` + `skill-installer` tests |
 | T9 | S9 | Inline | Done — `TuiTerminal.clear()` at every step boundary (home loop, `pause`, install steps, updater, advanced loops); RED test failed before the change | `e41a8eb`; TUI test splitting on `ESC[2J`; `171 passed` |
 | T10 | S10 | Inline | Done — `SpecialistAgentMode` plus optional `mode` contract, `nix` primary orchestrator entry, installer renders the declared mode | RED/GREEN catalog + installer tests; `173 passed` |
-
+| T11 | S11 | Inline | Done — orchestrator prompt gained the skill and specialist-roster protocol; the one-step install now writes the Nix-owned specialist agents per target | RED/GREEN catalog + TUI tests; `174 passed` |
 ## Log
 
 - L1 — User request: “Ya instala, y esta es la TUI, no me gusta para nada veo muchas opciones y eso de tener que pasarle un numero se ve muy pobre, hazlo que sea seleccionable con las flechas del teclado, que tenga un flujo de instalacion para saber que quiere instalar el usuario, que detecte si el usuario tiene codex o opencode, o ambos y le permita solo descargarlo en uno, que permita mirar que skills quiere instalar, el usuario que todo esto sea global, revisa la TUI de gentle-ai ya clone el repo esta aqui P:\Proyectos\gentle-ai crea una nueva rama para hacer esto, y haz el roadmap para mejorar la TUI, ve marcando el progreso del roadmap, y haz que sea una TUI chimba, que desde ahi mismo se pueda actualizar el AI-STACK y ponle un reborde a la TUI”
@@ -175,3 +190,4 @@ Checks: catalog test for id, target, mode, and flow markers; installer test asse
 - L20 — User request: “pero bb que es esa mierda, que se vaya limpiando el paso anterior, no que se vaya dibujando uno debajo del anterior y verifa que si haya quedado todo instalado porfa”. Root cause: steps wrote their frame after the previous one, and the home loop never cleared, so the terminal kept scrolling. `TuiTerminal.clear()` now writes `ESC[2J ESC[H` at every step boundary: the home loop, `pause`, each guided install step, both updater frames, and the top of every advanced-management loop. Selector keystrokes still redraw in place. RED first, then GREEN; `e41a8eb`. Real-machine verification of the previous install: `%APPDATA%\Nix AI Stack\managed\skills.json` holds 17 of 18 entries — every skill for both targets except `codex:accessibility`.
 - L21 — The one missing entry is correct behavior, not a failed install: `~\.agents\skills\accessibility` existed before Nix and its `SKILL.md` is byte-identical (SHA256 `5F96552E41DB945F…`) to the Nix-managed OpenCode copy, but the directory has no Nix `LICENSE`, so Nix reports `conflict` instead of claiming user-owned content. Content is functionally present for Codex; it is simply unmanaged and will not receive updates.
 - L22 — User request: “espera agrega tambien una agente para opencode que sea Nix, flow el Gentle-Orchestrator de Gentle-AI”. The Gentle-Orchestrator prompt is bound to Go-owned review machinery (RDD, frozen candidates, native acknowledgement) that Nix does not have, so only its flow was ported: ODD protocol, delegation triggers, work units, risk items, language contract. `SpecialistAgentMode` and an optional `mode` were added to the definition contract because `renderSpecialistAgent` hardcoded `mode: subagent`; the `nix` entry declares `mode: primary` and `supportedAgents: ["opencode"]`. Specialist agents remain outside the one-step install (Advanced management → Specialist agents), matching the existing contract. Suite: 173 passed, 0 failed; typecheck and build clean.
+- L23 — User requirement: “Se supone que Nix debe saber usar todas las skills y saber invocar sub agentes especiliazados en esas skills”. Two parts. (1) Prompt: the `nix` instructions gained `## Skills` (the harness skill list is the truth; load every matching skill before writing; a skill outranks your own habits; never invent or recall a skill id) and `## Specialist subagents` (the delegation tool's roster is the source of truth; the shipped specialists are `araxys-specialist` and `python-fastapi-specialist`; a specialist reports the specs it covered while Nix keeps verification and the report; never invent a subagent). No per-skill wrapper agents were generated: a skill already carries the specialization, and nine wrappers whose whole body is "load skill X" would duplicate it with worse discoverability. (2) Roster: the one-step install now also installs the Nix-owned specialist agents for each detected target, because delegating to an agent that was never installed is a promise Nix cannot keep. `nix` stays OpenCode-only, so no `nix.toml` is written for Codex, and an already-current agent is reported as preserved rather than as a failure. Version bumped to `1.1.0` so the installed copy updates instead of reading as a hand edit. Suite: 174 passed, 0 failed; typecheck, build, and `git diff --check` clean.
