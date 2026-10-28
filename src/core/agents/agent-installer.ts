@@ -91,7 +91,9 @@ export async function previewSpecialistAgent(root: string, id: string, agent: Sp
   if (content === undefined) return { ...base, action: record ? "update" : "install", ...(record ? { reason: "The ownership record exists but the installed agent file is missing." } : {}) };
   if (!record) return { ...base, action: "conflict", reason: "An existing agent file with this id is not managed by Nix." };
   if (!recordMatches(content, record)) return { ...base, action: "conflict", reason: "The Nix-managed agent was modified outside Nix; run agent:update to replace it." };
-  if (record.version !== entry.version) return { ...base, action: "update" };
+  // The record proves the file is still ours; it never proves the file matches the current source.
+  // Compare against what the catalog would render now, so a changed prompt is an update even at the same version.
+  if (content !== renderSpecialistAgent(entry, agent)) return { ...base, action: "update" };
   return { ...base, action: "already-current" };
 }
 
