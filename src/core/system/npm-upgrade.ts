@@ -23,6 +23,30 @@ export function createUpgradePlan(packageName: string): UpgradePlan {
 
 export type UpgradeRunner = (plan: UpgradePlan) => Promise<number>;
 
+export type LatestVersionResolver = (packageName: string) => Promise<string | undefined>;
+
+/**
+ * Reads the newest published version from the npm registry.
+ *
+ * A failed or empty registry query resolves `undefined` so the TUI can report
+ * an unresolved target instead of guessing a version.
+ */
+export const resolveLatestPublishedVersion: LatestVersionResolver = (packageName) =>
+  new Promise<string | undefined>((resolve) => {
+    const child = spawn(`npm view ${packageName} version`, {
+      stdio: ["ignore", "pipe", "ignore"],
+      shell: true,
+      windowsHide: true
+    });
+    let stdoutText = "";
+    child.stdout?.on("data", (chunk: Buffer) => { stdoutText += chunk.toString("utf8"); });
+    child.on("error", () => resolve(undefined));
+    child.on("close", (code) => {
+      const line = stdoutText.trim().split(/\r?\n/).pop()?.trim();
+      resolve(code === 0 && line ? line : undefined);
+    });
+  });
+
 /**
  * Runs the plan through npm and resolves with its exit code.
  *
