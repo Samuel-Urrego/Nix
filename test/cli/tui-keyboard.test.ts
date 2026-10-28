@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 
-import { selectWithKeyboard, writeFrame } from "../../src/cli/tui-keyboard.js";
+import { multiSelectWithKeyboard, selectWithKeyboard, writeFrame } from "../../src/cli/tui-keyboard.js";
 
 test("keyboard selector moves with arrow keys and returns the highlighted option", async () => {
   const input = new PassThrough() as PassThrough & {
@@ -38,6 +38,79 @@ test("keyboard selector moves with arrow keys and returns the highlighted option
     assert.match(transcript, /› Update/);
     const frameRows = transcript.split("\n").filter((line) => line.startsWith("╭") || line.startsWith("│") || line.startsWith("╰"));
     assert.ok(frameRows.every((line) => line.length <= 48));
+  } finally {
+    input.destroy();
+    output.destroy();
+  }
+});
+
+test("multi-select toggles items with space and returns only the checked indexes", async () => {
+  const input = new PassThrough() as PassThrough & {
+    isTTY: boolean;
+    isRaw: boolean;
+    setRawMode: (mode: boolean) => PassThrough;
+  };
+  input.isTTY = true;
+  input.isRaw = false;
+  input.setRawMode = (mode) => {
+    input.isRaw = mode;
+    return input;
+  };
+  const output = new PassThrough() as PassThrough & { columns: number };
+  output.columns = 60;
+  let transcript = "";
+  output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
+
+  try {
+    const pendingSelection = multiSelectWithKeyboard({
+      input: input as unknown as NodeJS.ReadStream,
+      output,
+      prompt: "Where should Nix install?",
+      choices: ["OpenCode", "Codex", "Both"],
+      initialSelected: [1]
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    input.write(" ");
+    input.write("\u001b[B");
+    input.write(" ");
+    input.write(" ");
+    input.write("\r");
+
+    assert.deepEqual(await pendingSelection, [0, 1]);
+    assert.equal(input.isRaw, false);
+    assert.match(transcript, /\[x\] Codex/);
+    assert.match(transcript, /Space Toggle/);
+  } finally {
+    input.destroy();
+    output.destroy();
+  }
+});
+
+test("multi-select returns an empty selection when escaped", async () => {
+  const input = new PassThrough() as PassThrough & {
+    isTTY: boolean;
+    isRaw: boolean;
+    setRawMode: (mode: boolean) => PassThrough;
+  };
+  input.isTTY = true;
+  input.isRaw = false;
+  input.setRawMode = (mode) => {
+    input.isRaw = mode;
+    return input;
+  };
+  const output = new PassThrough();
+
+  try {
+    const pendingSelection = multiSelectWithKeyboard({
+      input: input as unknown as NodeJS.ReadStream,
+      output,
+      prompt: "Choose skills",
+      choices: ["One", "Two"]
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    input.write("\u001b");
+
+    assert.deepEqual(await pendingSelection, []);
   } finally {
     input.destroy();
     output.destroy();

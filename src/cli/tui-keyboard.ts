@@ -73,6 +73,96 @@ export async function selectWithKeyboard({ input, output, prompt, choices, title
   });
 }
 
+export interface KeyboardMultiSelectOptions {
+  readonly input: NodeJS.ReadStream;
+  readonly output: NodeJS.WritableStream;
+  readonly prompt: string;
+  readonly choices: readonly string[];
+  readonly title?: string;
+  readonly initialSelected?: readonly number[];
+}
+
+export async function multiSelectWithKeyboard({
+  input,
+  output,
+  prompt,
+  choices,
+  title = "NIX AI-STACK",
+  initialSelected = []
+}: KeyboardMultiSelectOptions): Promise<readonly number[]> {
+  if (choices.length === 0) return [];
+  const terminalInput = input as KeyboardInput;
+  if (typeof terminalInput.setRawMode !== "function") {
+    throw new Error("Keyboard selection requires an interactive terminal.");
+  }
+
+  emitKeypressEvents(input);
+  const wasRaw = terminalInput.isRaw ?? false;
+  const checked = new Set<number>(initialSelected.filter((index) => index >= 0 && index < choices.length));
+  let cursor = 0;
+  let settled = false;
+
+  return new Promise<readonly number[]>((resolve, reject) => {
+    const cleanup = (): void => {
+      input.removeListener("keypress", onKeypress);
+      input.removeListener("close", onClose);
+      input.removeListener("error", onError);
+      terminalInput.setRawMode(wasRaw);
+    };
+    const finish = (value: readonly number[]): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(value);
+    };
+    const fail = (error: Error): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const render = (): void => {
+      output.write("\u001b[2J\u001b[H");
+      const lines = [
+        prompt,
+        "",
+        ...choices.map((choice, index) => `${index === cursor ? "›" : " "} [${checked.has(index) ? "x" : " "}] ${choice}`),
+        "",
+        "↑↓ Navigate · Space Toggle · Enter Confirm · Esc Back"
+      ];
+      writeFrame(output, title, lines);
+    };
+    const onKeypress = (value: string, key?: { readonly name?: string; readonly ctrl?: boolean }): void => {
+      if (key?.ctrl && key.name === "c") {
+        finish([]);
+      } else if (key?.name === "up") {
+        cursor = (cursor + choices.length - 1) % choices.length;
+        render();
+      } else if (key?.name === "down") {
+        cursor = (cursor + 1) % choices.length;
+        render();
+      } else if (key?.name === "space" || value === " ") {
+        if (checked.has(cursor)) checked.delete(cursor);
+        else checked.add(cursor);
+        render();
+      } else if (key?.name === "return" || key?.name === "enter") {
+        finish([...checked].sort((left, right) => left - right));
+      } else if (key?.name === "escape" || value.toLowerCase() === "q") {
+        finish([]);
+      }
+    };
+    const onClose = (): void => finish([]);
+    const onError = (error: Error): void => fail(error);
+
+    input.on("keypress", onKeypress);
+    input.once("close", onClose);
+    input.once("error", onError);
+    terminalInput.setRawMode(true);
+    input.resume();
+    render();
+  });
+}
+
 export function writeFrame(output: NodeJS.WritableStream, title: string, lines: readonly string[]): void {
   const columns = (output as NodeJS.WriteStream).columns ?? 80;
   const width = Math.max(4, Math.min(76, columns));
