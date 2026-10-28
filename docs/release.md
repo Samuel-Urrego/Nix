@@ -96,9 +96,9 @@ git tag -a v<version> -m "Nix <version>"
 git push origin v<version>
 ```
 
-Pushing a `v*` tag triggers `.github/workflows/release.yml`, which installs dependencies, refuses a tag that does not match the package version, and runs `npm publish`. The publish itself runs `prepublishOnly` (typecheck plus the full test suite) and `prepare` (build), so a failing suite blocks the release before anything reaches the registry.
+Pushing a `v*` tag triggers `.github/workflows/release.yml`, which installs dependencies, refuses a tag that does not match the package version, and runs `npm publish`. The publish itself runs `prepublishOnly` (typecheck plus the full test suite) and `prepack` (build), so a failing suite blocks the release before anything reaches the registry.
 
-The workflow authenticates with the `NODE_AUTH_TOKEN` repository secret, which `actions/setup-node` expands through the generated `.npmrc`. It must hold an npm token with publish rights on `nix-ai-stack`; without it the workflow fails at the publish step and no new version is released.
+The workflow uses npm Trusted Publishing with GitHub Actions OIDC rather than a long-lived `NODE_AUTH_TOKEN`. Configure the package's trusted publisher on npmjs.com with provider **GitHub Actions**, owner `Samuel-Urrego`, repository `Nix`, workflow filename `release.yml`, and allow direct `npm publish`. The workflow grants `id-token: write` only to the publishing job; npm automatically publishes provenance for eligible public GitHub repositories and public packages. It pins Actions to full commit SHAs and uses Node.js 22.14.0+ with npm 11.21.1; npm's documented minimum for trusted publishing is 11.5.1.
 
 Manual publish, only when the workflow is unavailable:
 
@@ -158,7 +158,7 @@ Run from a clean source checkout:
 1. `npm ci`
 2. `npm run release:check`
 3. `npm pack --dry-run` and confirm `dist/cli/index.js` is included
-4. Confirm the `NODE_AUTH_TOKEN` repository secret exists and is not expired
+4. Confirm npm Trusted Publishing is configured for `Samuel-Urrego/Nix` and `.github/workflows/release.yml`, with direct publishing enabled
 5. Complete the [clean-machine acceptance checklist](installation.md#clean-machine-acceptance-checklist)
 6. Confirm documentation matches observed behavior
 7. Confirm the worktree contains no unintended release artifacts
@@ -174,7 +174,7 @@ Run from a clean source checkout:
 
 ## Known limitations
 
-- No digital signing or provenance attestation. npm publishes without `--provenance`, so the registry entry is not attesting a build-to-source link.
+- No separate digital-signing key is configured. npm automatically attaches provenance when Trusted Publishing succeeds from an eligible public GitHub repository; the local SHA-256 manifest is not a signature.
 - No macOS or Linux verification.
 - No automatic migration for unsupported stack-state schemas.
 - No project-local installation mode; component, skill, MCP, and security-hook operations are global.
