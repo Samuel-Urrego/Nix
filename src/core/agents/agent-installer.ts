@@ -45,7 +45,8 @@ export function renderSpecialistAgent(entry: SpecialistAgentDefinition, agent: S
     return `# nix-ai:agent id=${entry.id}\nname = ${toml(entry.id)}\ndescription = ${toml(entry.description)}\ndeveloper_instructions = ${toml(entry.instructions)}\n`;
   }
   const description = entry.description.replace(/\n/g, " ").replace(/"/g, "\\\"");
-  return `---\ndescription: "${description}"\nmode: subagent\n---\n<!-- nix-ai:agent id=${entry.id} -->\n\n${entry.instructions.trimEnd()}\n`;
+  const mode = entry.mode ?? "subagent";
+  return `---\ndescription: "${description}"\nmode: ${mode}\n---\n<!-- nix-ai:agent id=${entry.id} -->\n\n${entry.instructions.trimEnd()}\n`;
 }
 
 async function readState(): Promise<AgentState> {

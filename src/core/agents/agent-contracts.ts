@@ -1,4 +1,6 @@
 export type SpecialistAgentTarget = "opencode" | "codex";
+/** OpenCode agent mode. Codex has no equivalent field, so it is ignored there. */
+export type SpecialistAgentMode = "primary" | "subagent";
 
 export interface SpecialistAgentDefinition {
   readonly id: string;
@@ -9,6 +11,8 @@ export interface SpecialistAgentDefinition {
   readonly source: "nix-catalog";
   readonly ownership: "nix";
   readonly supportedAgents: ReadonlyArray<SpecialistAgentTarget>;
+  /** Defaults to `subagent`: a role is delegated to, not the default entry point. */
+  readonly mode?: SpecialistAgentMode;
 }
 
 export type SpecialistAgentAction = "install" | "update" | "already-current" | "conflict" | "incompatible";

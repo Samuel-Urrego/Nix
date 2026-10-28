@@ -83,6 +83,25 @@ test("install writes native definitions and records managed status", async () =>
   }
 });
 
+test("a primary agent renders as the OpenCode entry point instead of a subagent", async () => {
+  const { root, restoreHome } = await fixture();
+  try {
+    const specialist = definition({ id: "demo-orchestrator", mode: "primary" });
+    const openCode = await installSpecialistAgent(root, specialist.id, "opencode", options(specialist));
+    const text = await readFile(openCode.targetPath, "utf8");
+    assert.match(text, /^---\ndescription: /);
+    assert.match(text, /mode: primary/);
+    assert.doesNotMatch(text, /mode: subagent/);
+
+    const delegated = definition({ id: "demo-delegated" });
+    const delegatedFile = await installSpecialistAgent(root, delegated.id, "opencode", options(delegated));
+    assert.match(await readFile(delegatedFile.targetPath, "utf8"), /mode: subagent/);
+  } finally {
+    restoreHome();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("an unmanaged global agent file is never overwritten or removed", async () => {
   const { root, restoreHome } = await fixture();
   try {

@@ -108,6 +108,34 @@ Risk: none — this only removes an install-time blocker and adds reporting; no 
 
 Checks: catalog test asserting no git skill has a blocking dependency; installer test previewing `brag` on a machine without FFmpeg.
 
+### S9 — Each wizard step replaces the previous screen
+
+User request: “pero bb que es esa mierda, que se vaya limpiando el paso anterior, no que se vaya dibujando uno debajo del anterior y verifa que si haya quedado todo instalado porfa”.
+
+Acceptance:
+- Every wizard step (`TARGET DETECTION`, `INSTALL MODE`, `INSTALL TARGETS`, `GLOBAL SKILLS`, `INSTALL PREVIEW`, `INSTALLING`) starts on a cleared screen and is drawn exactly once.
+- Returning to the home screen clears the previous step's result.
+- Intra-selector redraws stay in place: no `ESC[2J` on keystrokes.
+- The install preview and its confirmation stay on the same screen, because the user must read the preview while confirming.
+
+Risk: none — screen clearing only changes terminal output.
+
+Checks: TUI test splitting the transcript on `ESC[2J ESC[H` and asserting the panels never share a screen; full suite; real run.
+
+### S10 — Nix orchestrator agent for OpenCode
+
+User request: “espera agrega tambien una agente para opencode que sea Nix, flow el Gentle-Orchestrator de Gentle-AI”.
+
+Acceptance:
+- The specialist catalog holds a `nix` entry named `Nix`, owned by Nix, supported only by OpenCode, installed as a primary agent (`mode: primary`) so it is an entry point rather than a delegated role.
+- Its instructions carry the Gentle-Orchestrator flow adapted to Nix: authorize, explore, resolve uncertainty, classify size, track large work, implement in reviewable work units, verify with observed evidence, close with a risk line; plus the delegation triggers, the risk items 1–6, and the English-artifact language contract.
+- The instructions never reference machinery Nix does not have (Go review lifecycle, receipt-driven development).
+- Every other catalog entry keeps the default `mode: subagent`.
+
+Risk: item 3 — the installed agent file is a prompt contract OpenCode consumes, and the rendered frontmatter shape changes.
+
+Checks: catalog test for id, target, mode, and flow markers; installer test asserting `mode: primary` renders while a default entry still renders `mode: subagent`.
+
 ## Tasks
 
 | ID | Specs | Route | Status | Commit / Evidence |
@@ -120,6 +148,8 @@ Checks: catalog test asserting no git skill has a blocking dependency; installer
 | T6 | S6 | Inline | Done — in-place redraw replaces full-screen clears, multi-select gained search, `a` toggle-all, `Next →` row, and default-checked options | RED/GREEN `tui-keyboard` tests; E2E installs only the filtered skill |
 | T7 | S7 | Inline | Done — `INSTALL MODE`, one-step install, framed panels everywhere, `Yes/No` confirmation, framed progress bar, namespaced Codex command wrappers | RED/GREEN `tui-keyboard` + `tui` tests; `170 passed`; visual transcript with `Failed: 0` |
 | T8 | S8 | Inline | Done — catalog runtime tools are advisory and reported as guidance instead of blocking installation | RED/GREEN `skill-catalog` + `skill-installer` tests |
+| T9 | S9 | Inline | Done — `TuiTerminal.clear()` at every step boundary (home loop, `pause`, install steps, updater, advanced loops); RED test failed before the change | `e41a8eb`; TUI test splitting on `ESC[2J`; `171 passed` |
+| T10 | S10 | Inline | Done — `SpecialistAgentMode` plus optional `mode` contract, `nix` primary orchestrator entry, installer renders the declared mode | RED/GREEN catalog + installer tests; `173 passed` |
 
 ## Log
 
@@ -142,3 +172,6 @@ Checks: catalog test asserting no git skill has a blocking dependency; installer
 - L17 — User request: “la pantalla titila cuando se cambia de opcion y haz que las opciones sean seleccionable, tengan buscador, que haya un boton de next, y que se tome lo que el usuario seleccion y todo debe estar default marcado para que el usuario solo quite lo que no quiere”. Root cause of the flicker: every keypress wrote `ESC[2J` and repainted the whole screen. `InPlaceScreen` now moves the cursor up over its own rows and rewrites them with `ESC[2K`, shrinking back when a filter narrows the list, so no full-screen clear remains in either selector. `multiSelectWithKeyboard` gained a print-to-filter `Search:` line, Space toggling, `a` toggle-all over the visible rows, a visible `Next →` row with a selected/total counter, and Enter as the Next action; Esc cancels and writes nothing. The guided installer now passes every skill index as `initialSelected`, so everything starts checked and the user only unchecks. Tests: three new keyboard tests (filter plus Next counter, toggle-all, no `ESC[2J` on redraw) and the real-keyboard E2E now clears all, filters `python`, checks one skill, and asserts only that skill landed. Suite: 163 passed, 0 failed; typecheck, build, and `git diff --check` clean.
 - L18 — User request: “todo debe salir dentor del recuadro bb y bonito y haz que el paso en el que se instala pida la confirmacion tambien con una opcion de si o no, y ponle barra de descarga. quiero que todo se pueda instalar de una bb arregla esas dependencias de las skills externas”. Delivered as S7+S8/T7+T8: `runGuidedInstall` now renders `TARGET DETECTION`, `INSTALL MODE`, `INSTALL PREVIEW`, `CONFIRM`, `INSTALLING`, and `INSTALL COMPLETE` as frames; the mode select makes one-step installation the default; confirmation and every advanced-management confirmation became a `Yes/No` selector defaulting to `No`; `createProgress` draws an in-place framed bar; `shortenPath` keeps wrapped paths short. Only three bare writes remain in `tui.ts` (banner, non-interactive branch, one flow-entry clear).
 - L19 — One-step installation exposed a real collision: `/araxys` (`codexSkillId: "araxys-integration"`) and `/security-audit` wrote their Codex wrappers into the same directories as the external skills of those ids, so the skill install failed with "An existing skill directory with this id is not managed by Nix." Fixed by namespacing the wrappers (`nix-command-araxys`, `nix-command-security-audit`) and keeping the frontmatter `name` as the command id so Codex never lists two skills with the same name. A stale wrapper from an older build is removed only when the directory contains exactly one `SKILL.md` carrying that command's ownership marker; anything else is preserved. The previous one-step test only asserted the file existed, which the command wrapper alone satisfied — it now compares the installed content with the bundled skill and asserts no `Failure:` line. Suite: 170 passed, 0 failed; typecheck clean; visual transcript ends with `Installed: 16 files · Preserved: 0 · Failed: 0`.
+- L20 — User request: “pero bb que es esa mierda, que se vaya limpiando el paso anterior, no que se vaya dibujando uno debajo del anterior y verifa que si haya quedado todo instalado porfa”. Root cause: steps wrote their frame after the previous one, and the home loop never cleared, so the terminal kept scrolling. `TuiTerminal.clear()` now writes `ESC[2J ESC[H` at every step boundary: the home loop, `pause`, each guided install step, both updater frames, and the top of every advanced-management loop. Selector keystrokes still redraw in place. RED first, then GREEN; `e41a8eb`. Real-machine verification of the previous install: `%APPDATA%\Nix AI Stack\managed\skills.json` holds 17 of 18 entries — every skill for both targets except `codex:accessibility`.
+- L21 — The one missing entry is correct behavior, not a failed install: `~\.agents\skills\accessibility` existed before Nix and its `SKILL.md` is byte-identical (SHA256 `5F96552E41DB945F…`) to the Nix-managed OpenCode copy, but the directory has no Nix `LICENSE`, so Nix reports `conflict` instead of claiming user-owned content. Content is functionally present for Codex; it is simply unmanaged and will not receive updates.
+- L22 — User request: “espera agrega tambien una agente para opencode que sea Nix, flow el Gentle-Orchestrator de Gentle-AI”. The Gentle-Orchestrator prompt is bound to Go-owned review machinery (RDD, frozen candidates, native acknowledgement) that Nix does not have, so only its flow was ported: ODD protocol, delegation triggers, work units, risk items, language contract. `SpecialistAgentMode` and an optional `mode` were added to the definition contract because `renderSpecialistAgent` hardcoded `mode: subagent`; the `nix` entry declares `mode: primary` and `supportedAgents: ["opencode"]`. Specialist agents remain outside the one-step install (Advanced management → Specialist agents), matching the existing contract. Suite: 173 passed, 0 failed; typecheck and build clean.

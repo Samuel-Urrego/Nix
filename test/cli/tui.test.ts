@@ -51,7 +51,7 @@ test("TUI installs a Nix specialist agent through preview and explicit confirmat
   const output = new PassThrough() as PassThrough & { isTTY: boolean };
   let transcript = "";
   output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
-  const answers = ["3", "10", "1", "1", "1", "yes", "", "b", "12", "4"];
+  const answers = ["3", "10", "2", "1", "1", "yes", "", "b", "12", "4"];
 
   try {
     await runTui({ output, ask: async (prompt) => {
