@@ -102,6 +102,33 @@ test("install writes the pinned tree, records ownership, and reinstall is curren
   }
 });
 
+test("bundled skills install from the package root without network access", async () => {
+  const { root, restoreHome } = await fixture();
+  try {
+    const source = path.join(root, "skills", "araxys-integration");
+    await mkdir(source, { recursive: true });
+    await writeFile(path.join(source, "SKILL.md"), "---\nname: araxys-integration\n---\n\n# Consumer-only\n", "utf8");
+    const bundled: SkillCatalogEntry = {
+      id: "araxys-integration", name: "Araxys Integration", description: "Use Araxys from its consumer.",
+      source: { kind: "bundled", path: "skills/araxys-integration" }, license: "Apache-2.0", version: "1.0.0",
+      dependencies: [], compatibleAgents: ["opencode", "codex"],
+      installPaths: { opencode: ".config/opencode/skills/araxys-integration", codex: ".agents/skills/araxys-integration" },
+      updatePolicy: "pinned", stackTags: ["python", "security"]
+    };
+    const installerOptions = { catalog: [bundled], packageRoot: root };
+    const preview = await previewSkill(root, bundled.id, "codex", installerOptions);
+    assert.equal(preview.network, false);
+    assert.equal(preview.repo, "Nix package");
+    const result = await installSkill(root, bundled.id, "codex", installerOptions);
+    assert.equal(result.action, "installed");
+    assert.match(await readFile(path.join(result.targetPath, "SKILL.md"), "utf8"), /Consumer-only/);
+    assert.equal((await getSkillStatus(root, installerOptions)).find((item) => item.agent === "codex")?.state, "current");
+  } finally {
+    restoreHome();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("incompatible agents and missing dependencies refuse installation", async () => {
   const { root, restoreHome } = await fixture();
   try {

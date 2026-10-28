@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { access, lstat, mkdir, mkdtemp, readFile, readdir, rm, rmdir, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { getGlobalSkillTargetPath, getManagedSkillsPath } from "../config/global-paths.js";
 import { skillCatalog } from "./skill-catalog.js";
@@ -43,6 +44,7 @@ export interface SkillInstallerOptions {
   readonly catalog?: ReadonlyArray<SkillCatalogEntry>;
   readonly fetcher?: SkillFetcher;
   readonly now?: () => Date;
+  readonly packageRoot?: string;
 }
 
 interface FileDigest {
@@ -70,6 +72,10 @@ interface TargetSnapshot {
 }
 
 const emptyState: ManagedSkillState = { schemaVersion: 1, entries: {} };
+
+function sourceIdentity(entry: SkillCatalogEntry): string {
+  return entry.source.kind === "git" ? entry.source.ref : `bundled:${entry.source.path}`;
+}
 
 export function managedSkillStatePath(_root: string): string {
   return getManagedSkillsPath();
@@ -101,13 +107,13 @@ export async function previewSkill(
     id,
     agent,
     targetPath,
-    repo: entry.source.repo,
-    ref: entry.source.ref,
+    repo: entry.source.kind === "git" ? entry.source.repo : "Nix package",
+    ref: sourceIdentity(entry),
     version: entry.version,
     license: entry.license,
     dependencies,
     missing,
-    network: true
+    network: entry.source.kind === "git"
   } as const;
 
   if (!entry.compatibleAgents.includes(agent)) {
@@ -132,7 +138,7 @@ export async function previewSkill(
   if (!matchesRecord(snapshot, record)) {
     return { ...base, action: "conflict", reason: "The Nix-managed skill was modified outside Nix; run skill:update to restore it." };
   }
-  if (record.version !== entry.version || record.ref !== entry.source.ref) {
+  if (record.version !== entry.version || record.ref !== sourceIdentity(entry)) {
     return { ...base, action: "update" };
   }
   return { ...base, action: "already-current" };
@@ -265,7 +271,7 @@ export async function getSkillStatus(
       result.push({
         id: entry.id,
         agent,
-        state: record.version === entry.version && record.ref === entry.source.ref ? "current" : "update-available"
+        state: record.version === entry.version && record.ref === sourceIdentity(entry) ? "current" : "update-available"
       });
     }
   }
@@ -280,8 +286,20 @@ export function createLocalSkillFetcher(sourceDirectory: string): SkillFetcher {
   };
 }
 
+export function createBundledSkillFetcher(packageRoot: string): SkillFetcher {
+  return async (entry) => {
+    if (entry.source.kind !== "bundled") throw new Error(`Skill ${entry.id} is not bundled in the Nix package.`);
+    const skillDirectory = resolveWithin(path.resolve(packageRoot), entry.source.path);
+    return readSkillDirectory(skillDirectory);
+  };
+}
+
 function fetcherFor(options: SkillInstallerOptions): SkillFetcher {
-  return options.fetcher ?? fetchPinnedSkill;
+  if (options.fetcher) return options.fetcher;
+  const bundledRoot = options.packageRoot ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+  return async (entry) => entry.source.kind === "bundled"
+    ? createBundledSkillFetcher(bundledRoot)(entry)
+    : fetchPinnedSkill(entry);
 }
 
 function requireEntry(options: SkillInstallerOptions, id: string): SkillCatalogEntry {
@@ -292,6 +310,7 @@ function requireEntry(options: SkillInstallerOptions, id: string): SkillCatalogE
 }
 
 async function fetchPinnedSkill(entry: SkillCatalogEntry): Promise<SkillFileMap> {
+  if (entry.source.kind !== "git") throw new Error(`Skill ${entry.id} does not use a Git source.`);
   const directory = await mkdtemp(path.join(os.tmpdir(), "nix-skill-fetch-"));
   try {
     await runGit(directory, ["init", "-q"]);
@@ -429,7 +448,7 @@ async function recordInstall(
     id: entry.id,
     agent,
     version: entry.version,
-    ref: entry.source.ref,
+    ref: sourceIdentity(entry),
     installedAt: (options.now ?? (() => new Date()))().toISOString(),
     files: [...files].map(([relative, content]) => ({ path: relative, sha256: hash(content) })).sort((left, right) => left.path.localeCompare(right.path))
   };

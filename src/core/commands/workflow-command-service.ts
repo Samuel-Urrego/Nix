@@ -47,7 +47,7 @@ export async function runWorkflowCommand(
 ): Promise<WorkflowCommandRun> {
   const availability = getCommandAvailability(state, id);
   const normalizedTitle = title.trim();
-  if (!normalizedTitle && id !== "new-project") throw new Error(`A title is required for ${availability.command.slash}.`);
+  if (!normalizedTitle && id !== "new-project" && id !== "araxys" && id !== "security-audit") throw new Error(`A title is required for ${availability.command.slash}.`);
   if (!availability.cliAvailable) {
     throw new Error(`Command ${availability.command.slash} is unavailable: ${availability.cliReason ?? "unknown reason"}`);
   }
@@ -74,7 +74,11 @@ export async function runWorkflowCommand(
     workflow: null,
     prompt: id === "new-idea"
       ? renderIdeaPrompt(root, normalizedTitle)
-      : renderNewProjectPrompt(normalizedTitle)
+      : id === "araxys"
+        ? renderAraxysPrompt(root, normalizedTitle)
+        : id === "security-audit"
+          ? renderSecurityAuditPrompt(root, normalizedTitle)
+          : renderNewProjectPrompt(normalizedTitle)
   };
 }
 
@@ -103,11 +107,17 @@ function renderOpenCodeCommand(command: WorkflowCommandDefinition): string {
   if (command.id === "new-project") {
     return `${header}Analyze the current repository and use the generated project blueprint. Optional request: $ARGUMENTS\n\n\`\`\`text\nnix-ai workflow:command --id=new-project --title="$ARGUMENTS" --root=. --yes\n\`\`\`\n\nDo not start SDD/TDD. Do not write project files until the proposed skill, agent roles, and target paths have been previewed and the user confirms.\n`;
   }
+  if (command.id === "araxys") {
+    return `${header}Integrate Araxys only in the current consuming application. Request: $ARGUMENTS\n\nRead the globally installed \`araxys-integration\` skill before using the library. Verify the consumer's installed Araxys version and inspect that version's public exports/docs before recommending APIs. Never edit the Araxys library repository.\n`;
+  }
+  if (command.id === "security-audit") {
+    return `${header}Run a coverage-first security audit against the current project. Scope/request: $ARGUMENTS\n\nRead the installed Cloudflare Security Audit skill from the project's global Codex/OpenCode skill location before starting. Map routes, trust boundaries, and security-sensitive surfaces before claiming coverage. Inspect findings against code and tests; report only evidence-backed issues. Do not copy or replace the upstream skill instructions.\n`;
+  }
   return `${header}Run the isolated blind-judge workflow and follow its returned prompt exactly:\n\n\`\`\`text\nnix-ai workflow:command --id=new-idea --title="$ARGUMENTS" --root=. --yes\n\`\`\`\n\nDo not start an SDD/TDD workflow. If the command reports that the skill or runtime contract is unavailable, stop and report the missing path.\n`;
 }
 
 function renderCodexSkill(command: WorkflowCommandDefinition): string {
-  const name = command.id === "new-feat" ? "new-feat" : command.id;
+  const name = command.codexSkillId ?? command.id;
   const header = [
     "---",
     `name: ${name}`,
@@ -130,6 +140,12 @@ function renderCodexSkill(command: WorkflowCommandDefinition): string {
   }
   if (command.id === "new-project") {
     return `${header}Analyze the current repository and use the generated project blueprint. Optional request: <project purpose or constraints>\n\n\`\`\`text\nnix-ai workflow:command --id=new-project --root=. --yes\n\`\`\`\n\nDo not start SDD/TDD. Do not write project files until the proposed skill, agent roles, and target paths have been previewed and the user confirms.\n`;
+  }
+  if (command.id === "araxys") {
+    return `${header}Integrate Araxys only in the current consuming application. Request: <integration task>\n\nRead the globally installed \`araxys-integration\` skill before using the library. Verify the consumer's installed Araxys version and inspect that version's public exports/docs before recommending APIs. Never edit the Araxys library repository.\n`;
+  }
+  if (command.id === "security-audit") {
+    return `${header}Run a coverage-first security audit against the current project. Scope/request: <optional audit focus>\n\nRead the installed Cloudflare Security Audit skill from its global path before starting. Map routes, trust boundaries, and security-sensitive surfaces before claiming coverage. Inspect findings against code and tests; report only evidence-backed issues. Do not copy or replace the upstream skill instructions.\n`;
   }
   return `${header}Run the isolated blind-judge workflow and follow its returned prompt exactly:\n\n\`\`\`text\nnix-ai workflow:command --id=new-idea --title="<idea text>" --root=. --yes\n\`\`\`\n\nDo not start an SDD/TDD workflow. If the command reports that the skill or runtime contract is unavailable, stop and report the missing path.\n`;
 }
@@ -171,6 +187,31 @@ function renderNewProjectPrompt(request: string): string {
     "Before writing, validate safe lowercase slugs, inspect every destination, and do not overwrite any existing file. Present a concise preview of the skill/agent roles, exact paths, and complete proposed contents; wait for explicit user confirmation before creating files. After confirmation, write only the confirmed files and verify their contents and frontmatter/config syntax.",
     "",
     "Keep artifacts in English, follow existing repository conventions and its skill style guide, and report the created paths plus any roles intentionally omitted."
+  ].join("\n");
+}
+
+function renderAraxysPrompt(root: string, request: string): string {
+  const skill = getGlobalSkillTargetPath("opencode", "araxys-integration");
+  const codexSkill = getGlobalSkillTargetPath("codex", "araxys-integration");
+  return [
+    "# /araxys", "", "Use the `araxys-integration` skill to handle this Araxys integration request.",
+    `Consumer project: ${root}`, `Request: ${request || "(ask one concise question to learn the integration goal)"}`, "",
+    "Before recommending an API, inspect the consumer's dependency declaration and installed Araxys version, then verify the matching public exports and documentation.",
+    `- OpenCode skill: \`${skill}\\SKILL.md\``, `- Codex skill: \`${codexSkill}\\SKILL.md\``,
+    "Work only in the consuming application. Never create, edit, or commit files in the Araxys library repository. Do not begin an unrelated SDD/TDD workflow."
+  ].join("\n");
+}
+
+function renderSecurityAuditPrompt(root: string, request: string): string {
+  const codexSkill = path.join(getGlobalSkillTargetPath("codex", "security-audit"), "SKILL.md");
+  const opencodeSkill = path.join(getGlobalSkillTargetPath("opencode", "security-audit"), "SKILL.md");
+  return [
+    "# /security-audit", "", "Run the installed Cloudflare Security Audit skill; do not reproduce its full prompt.",
+    `Project scope: ${root}`, `Requested focus: ${request || "all reachable application surfaces"}`, "",
+    "Start with coverage: enumerate routes, trust boundaries, sensitive data flows, auth/permission checks, and relevant tests before reporting findings.",
+    "Validate every finding against implementation evidence and tests. Distinguish reviewed coverage from unreviewed areas; never claim complete coverage without evidence.",
+    `- Codex skill: \`${codexSkill}\``, `- OpenCode skill: \`${opencodeSkill}\``,
+    "Do not start an unrelated SDD/TDD workflow. If the skill is not installed, report that prerequisite instead of copying upstream instructions."
   ].join("\n");
 }
 
@@ -270,7 +311,8 @@ async function planInstall(root: string, state: StackState, agent: SkillAgent): 
 }
 
 function commandAbsolutePath(_root: string, id: WorkflowCommandId, agent: SkillAgent): string {
-  if (agent === "codex") return path.join(getCodexUserSkillsDirectory(), id, "SKILL.md");
+  const command = workflowCommandCatalog.find((item) => item.id === id);
+  if (agent === "codex") return path.join(getCodexUserSkillsDirectory(), command?.codexSkillId ?? id, "SKILL.md");
   return path.join(getOpenCodeCommandsDirectory(), `${id}.md`);
 }
 

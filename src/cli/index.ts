@@ -29,7 +29,7 @@ import { mcpCatalog, findMcpEntry } from "../core/mcp/mcp-catalog.js";
 import type { McpAgent } from "../core/mcp/mcp-contracts.js";
 import { getMcpStatus, installMcp, previewMcp, removeMcp, updateMcp } from "../core/mcp/mcp-service.js";
 import { findSkillEntry, skillCatalog } from "../core/skills/skill-catalog.js";
-import type { SkillAgent } from "../core/skills/skill-contracts.js";
+import { describeSkillSource, type SkillAgent } from "../core/skills/skill-contracts.js";
 import {
   createLocalSkillFetcher,
   getSkillStatus,
@@ -44,6 +44,9 @@ import { CodexSkillAdapter } from "../core/components/codex-skill-adapter.js";
 import { componentCatalog } from "../core/components/component-catalog.js";
 import type { LifecycleOperation } from "../core/contracts/component-lifecycle.js";
 import { SecurityHooksInstaller } from "../core/security/security-hooks-installer.js";
+import { specialistAgentCatalog } from "../core/agents/agent-catalog.js";
+import type { SpecialistAgentTarget } from "../core/agents/agent-contracts.js";
+import { getSpecialistAgentStatus, installSpecialistAgent, previewSpecialistAgent, removeSpecialistAgent, updateSpecialistAgent } from "../core/agents/agent-installer.js";
 import {
   createReleaseManifest,
   loadReleaseManifest,
@@ -84,6 +87,12 @@ const handlers = new Map<string, CommandHandler>([
   ["skill:install", installSkillCommand],
   ["skill:update", updateSkillCommand],
   ["skill:remove", removeSkillCommand],
+  ["agent:list", printAgentCatalog],
+  ["agent:status", printAgentStatus],
+  ["agent:preview", previewSpecialistAgentCommand],
+  ["agent:install", installSpecialistAgentCommand],
+  ["agent:update", updateSpecialistAgentCommand],
+  ["agent:remove", removeSpecialistAgentCommand],
   ["skill:new", newSkillCommand],
   ["release:manifest", releaseManifestCommand],
   ["release:verify", verifyReleaseCommand],
@@ -506,10 +515,10 @@ async function runWorkflowCommandCli(): Promise<void> {
   const args = process.argv.slice(3);
   const id = readOption(args, "id");
   if (!isWorkflowCommandId(id)) {
-    throw new Error("Provide --id=new-feat, --id=refactor, --id=new-idea, or --id=new-project.");
+    throw new Error("Provide a known workflow command id (new-feat, refactor, new-idea, new-project, araxys, or security-audit).");
   }
   const title = readOption(args, "title") ?? "";
-  if (!title && id !== "new-project") throw new Error(`Provide --title="..." for ${id}.`);
+  if (!title && id !== "new-project" && id !== "araxys" && id !== "security-audit") throw new Error(`Provide --title="..." for ${id}.`);
   requireYes(args, `run the ${id} command`);
   const root = path.resolve(resolveRootFromArgs(args));
   const state = await loadStackState();
@@ -684,7 +693,7 @@ async function printSkillCatalog(): Promise<void> {
   for (const entry of skillCatalog) {
     console.log(`- ${entry.id} — ${entry.name}`);
     console.log(`  description: ${entry.description}`);
-    console.log(`  source: ${entry.source.repo}@${entry.source.ref} (${entry.source.path})`);
+    console.log(`  source: ${describeSkillSource(entry.source)}`);
     console.log(`  license: ${entry.license}; version: ${entry.version}`);
     console.log(`  agents: ${entry.compatibleAgents.join(", ")}`);
     console.log(`  install: ${entry.compatibleAgents.map((agent) => `${agent} ${globalSkillTargetPath(agent, entry.id)}`).join("; ")}`);
@@ -748,6 +757,58 @@ async function removeSkillCommand(): Promise<void> {
   const root = path.resolve(resolveRootFromArgs(args));
   await removeSkill(root, id, agent);
   console.log(`Removed Nix-managed skill ${id} [${agent}]; unrelated files were preserved.`);
+}
+
+function readSpecialistTarget(args: ReadonlyArray<string>): SpecialistAgentTarget {
+  const agent = readOption(args, "agent") ?? "opencode";
+  if (agent !== "opencode" && agent !== "codex") throw new Error(`Unknown agent target: ${agent}`);
+  return agent;
+}
+
+async function printAgentCatalog(): Promise<void> {
+  if (specialistAgentCatalog.length === 0) { console.log("No specialist agents are in the Nix catalog yet."); return; }
+  for (const item of specialistAgentCatalog) console.log(`${item.id}  ${item.name}  [${item.supportedAgents.join(", ")}]\n  ${item.description}`);
+}
+
+async function printAgentStatus(): Promise<void> {
+  const status = await getSpecialistAgentStatus(path.resolve(resolveRootFromArgs(process.argv.slice(3))), { catalog: specialistAgentCatalog });
+  if (status.length === 0) { console.log("No specialist agents are in the Nix catalog yet."); return; }
+  for (const item of status) console.log(`${item.id} (${item.agent}): ${item.state}${item.detail ? ` — ${item.detail}` : ""}`);
+}
+
+async function previewSpecialistAgentCommand(): Promise<void> {
+  const args = process.argv.slice(3); const id = readOption(args, "id");
+  if (!id) throw new Error("Provide --id=<specialist-agent-id>.");
+  const plan = await previewSpecialistAgent(path.resolve(resolveRootFromArgs(args)), id, readSpecialistTarget(args), { catalog: specialistAgentCatalog });
+  console.log(`Specialist agent: ${plan.action}`); console.log(`Target: ${plan.targetPath}`); if (plan.reason) console.log(`Reason: ${plan.reason}`);
+  if (plan.action === "conflict" || plan.action === "incompatible") process.exitCode = 1;
+}
+
+async function installSpecialistAgentCommand(): Promise<void> {
+  const args = process.argv.slice(3); const id = readOption(args, "id");
+  if (!id) throw new Error("Provide --id=<specialist-agent-id>.");
+  const root = path.resolve(resolveRootFromArgs(args)); const agent = readSpecialistTarget(args);
+  const plan = await previewSpecialistAgent(root, id, agent, { catalog: specialistAgentCatalog });
+  console.log(`Specialist agent: ${plan.action}`); console.log(`Target: ${plan.targetPath}`); if (plan.reason) console.log(`Reason: ${plan.reason}`);
+  if (plan.action === "conflict" || plan.action === "incompatible") throw new Error("Resolve the specialist-agent target conflict before installing.");
+  if (!args.includes("--yes")) throw new Error("Installing a specialist agent changes global agent files; rerun with --yes.");
+  console.log(`Result: ${(await installSpecialistAgent(root, id, agent, { catalog: specialistAgentCatalog })).action}`);
+}
+
+async function updateSpecialistAgentCommand(): Promise<void> {
+  const args = process.argv.slice(3); const id = readOption(args, "id");
+  if (!id) throw new Error("Provide --id=<specialist-agent-id>.");
+  if (!args.includes("--yes")) throw new Error("Updating a specialist agent changes global agent files; rerun with --yes.");
+  const result = await updateSpecialistAgent(path.resolve(resolveRootFromArgs(args)), id, readSpecialistTarget(args), { catalog: specialistAgentCatalog });
+  console.log(`Result: ${result.action}`); console.log(`Target: ${result.targetPath}`); if (result.backupPath) console.log(`Backup: ${result.backupPath}`);
+}
+
+async function removeSpecialistAgentCommand(): Promise<void> {
+  const args = process.argv.slice(3); const id = readOption(args, "id");
+  if (!id) throw new Error("Provide --id=<specialist-agent-id>.");
+  if (!args.includes("--yes")) throw new Error("Removing a specialist agent changes global agent files; rerun with --yes.");
+  const result = await removeSpecialistAgent(path.resolve(resolveRootFromArgs(args)), id, readSpecialistTarget(args), { catalog: specialistAgentCatalog });
+  console.log(`Result: ${result.action}`); console.log(`Target: ${result.targetPath}`);
 }
 
 async function newSkillCommand(): Promise<void> {
@@ -848,7 +909,7 @@ async function printHelp(): Promise<void> {
   console.log("  workflow:advance Record evidence for the current step (--id=<id> --evidence=\"...\" --yes)");
   console.log("  workflow:skip    Skip TDD RED with a reason (--id=<id> --reason=\"...\" --yes)");
   console.log("  workflow:resume  Show the persisted next action for a workflow (--id=<id>)");
-  console.log("  workflow:commands  List /new-feat, /refactor, /new-idea, and /new-project with CLI/slash availability (--json)");
+  console.log("  workflow:commands  List all shared slash commands with CLI/slash availability (--json)");
   console.log("  workflow:command   Run a catalog command (--id=... [--title=\"...\"] --root=<project> --yes)");
   console.log("  workflow:install-commands  Install/remove global OpenCode commands or Codex skills");
   console.log("                   --agent=opencode|codex --root=<project> [--remove] --yes");
@@ -865,6 +926,12 @@ async function printHelp(): Promise<void> {
   console.log("  skill:update     Restore a managed skill from its pinned source (same flags, --yes)");
   console.log("  skill:remove     Remove only the Nix-managed skill (same flags, --yes)");
   console.log("  skill:new        Scaffold a global user skill (--id=<id> [--agent=opencode|codex])");
+  console.log("  agent:list       List Nix-managed global specialist agents");
+  console.log("  agent:status     Show specialist-agent install state per supported target");
+  console.log("  agent:preview    Preview one target (--id=<id> --agent=opencode|codex)");
+  console.log("  agent:install    Install one managed specialist agent (same flags, --yes)");
+  console.log("  agent:update     Restore a verified Nix-owned agent with a recovery copy (same flags, --yes)");
+  console.log("  agent:remove     Remove only a verified Nix-owned agent (same flags, --yes)");
   console.log("  release:manifest Build a SHA-256 release manifest for dist/");
   console.log("                   --root=<project> [--dist=dist] [--out=dist/release-manifest.json] [--json]");
   console.log("  release:verify   Verify dist/ against a release manifest");

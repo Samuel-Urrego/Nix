@@ -1,61 +1,90 @@
-# Installation and first run
+# Install and configure Nix
 
-This guide covers a clean Windows installation of Nix, the first-run journey, component lifecycle, diagnosis, upgrades, rollback, and removal. It describes only behavior that is implemented and tested in this repository.
+Install the Nix CLI once, then use its interactive TUI to configure the AI tools you want. The TUI previews global targets and asks before each change; optional MCPs and security hooks are never silently enabled.
 
 ## Supported baseline
 
 - **Operating system:** Windows 10 or Windows 11. Other platforms are not verified for v1.
+- **Shell:** Windows PowerShell 5.1 or newer.
 - **Runtime:** Node.js `>=20.11.0` with an npm-compatible package manager.
 - **Shells:** PowerShell, `cmd.exe`, and Git Bash/MSYS for security-hook inspection.
 - **Agents:** OpenCode and Codex. Additional agent adapters are not implemented.
-- **Repository tools:** Git is optional for the core CLI and required to install pinned external skills from their upstream repositories.
+- **Repository tools:** Git is required by the source installer and for pinned external skills.
 
 The authoritative compatibility record is the release manifest and the [support matrix](support-matrix.md).
 
-## Clean install from source
+## One-command install on Windows
 
 ```powershell
-git clone <repository-url> nix
+$installer = Join-Path $env:TEMP 'nix-install.ps1'; Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/Samuel-Urrego/Nix/main/scripts/install.ps1' -OutFile $installer; & $installer
+```
+
+The installer checks Node.js, npm, and Git, installs Nix under your user profile without administrator access, then opens the configuration TUI. It asks before adding Nix's command directory to your user `PATH`; declining does not prevent this installation from launching the TUI.
+
+**Trust boundary:** this downloads and runs the PowerShell installer from the Nix GitHub repository. Review [`scripts/install.ps1`](https://github.com/Samuel-Urrego/Nix/blob/main/scripts/install.ps1) before executing it if you want to inspect the source first. The installer does not change PowerShell's execution policy, request elevation, or delete existing files. `-DryRun` prints the source, target, and install command without installing; `-Ref <branch-or-tag>` selects a different repository ref.
+
+To preview only:
+
+```powershell
+.\scripts\install.ps1 -DryRun
+```
+
+`-NoLaunch` installs without opening the TUI. Re-running the installer updates the CLI from the selected ref and preserves Nix's configuration and managed component data.
+
+### Installer error codes
+
+If installation fails, copy the `NIX-INST-###` code printed by PowerShell and send it with the error details. The code identifies the failing stage:
+
+| Code | Meaning |
+|---|---|
+| `NIX-INST-001`–`003` | Node.js, npm, or Git is missing (in that order). |
+| `NIX-INST-004`–`008` | npm/Node.js version could not be read or parsed, or Node.js is below 20.11. |
+| `NIX-INST-009` | Windows did not provide the user install location. |
+| `NIX-INST-010` | npm could not install Nix; check the reported exit code, network, Git, and npm configuration. |
+| `NIX-INST-011` | npm reported success but did not create the Nix CLI command shim. |
+| `NIX-INST-012` | The installer could not update the user `PATH`; the message includes the directory to add manually. |
+| `NIX-INST-013`–`014` | Nix was installed, but the TUI could not start or exited with an error. |
+| `NIX-INST-015` | The requested branch or tag name is invalid. |
+| `NIX-INST-999` | An unexpected installer failure; include the full error details. |
+
+Errors that occur before the script starts (for example, failure to download the script itself) cannot be assigned a code by the installer.
+
+## Configure from the TUI
+
+The installer opens the TUI after installing Nix. From there you can:
+
+- choose OpenCode or Codex as a preferred target;
+- preview and install Nix specialist agents, reusable skills, and workflow commands;
+- preview and configure optional MCP integrations, including their prerequisites and network behavior;
+- independently enable SDD/TDD preferences; and
+- explicitly opt into or manage the advisory security hooks.
+
+Each manager reuses Nix's ownership checks, previews the affected paths, and asks before writing. Unmanaged agent, skill, command, or MCP configuration is preserved. A saved agent preference is not itself an installation.
+
+When the TUI closes, verify the setup with:
+
+```powershell
+nix-ai doctor
+nix-ai agent:status
+nix-ai skill:status
+nix-ai mcp:status
+```
+
+Optional Git-based skills can download pinned upstream content during installation. MCPs that use `npx` may download their package on first run. Security hooks remain opt-in and advisory; they are not a sandbox.
+
+## Source development
+
+Contributors who want to work on the Nix repository should clone it and install development dependencies instead of using the end-user installer:
+
+```powershell
+git clone https://github.com/Samuel-Urrego/Nix.git nix
 cd nix
 npm ci
 npm run build
+npm test
 ```
 
-The CLI entry point is `dist/cli/index.js`. To expose the `nix-ai` command:
-
-```powershell
-npm link
-nix-ai --version
-```
-
-If you do not want a global link, use `node dist/cli/index.js <command>` instead of `nix-ai`.
-
-## First run
-
-Run the diagnostic from the project you want to manage:
-
-```powershell
-cd C:\path\to\your-project
-nix-ai doctor --root=.
-```
-
-Expected result: the report ends with `Status: bootstrap-ready` and shows the current version, stack preferences, workflow settings, reviewer sources, and release compatibility.
-
-Create the global configuration when you want explicit settings:
-
-```powershell
-nix-ai config:init --root=.
-```
-
-This writes `config.json` under the Nix home (`NIX_AI_HOME`, otherwise `%APPDATA%\Nix AI Stack` on Windows). The file is optional; Nix uses defaults when it is absent.
-
-Open the interactive terminal UI with no command:
-
-```powershell
-nix-ai
-```
-
-The TUI provides the guided path for previewing and managing components. The CLI equivalents below exercise the same global lifecycle and are the automated path used by the release tests.
+Run the local TUI with `npm start`. The published installer installs the configured Git ref globally; it is not a development checkout.
 
 ## Install the Nix Core component
 
@@ -187,16 +216,17 @@ Removing a component does not delete user-owned files, unrelated agent configura
 
 Use a fresh Windows user profile or a disposable VM:
 
-1. Install Node.js 20.11+ and confirm `node --version`.
-2. Clone the repository, run `npm ci`, and run `npm run build`.
-3. Run `nix-ai --version` and `nix-ai doctor --root=<fresh-project>`.
-4. Run `nix-ai` and complete the TUI journey: preview Nix Core, install it, then remove it.
-5. Confirm the CLI sequence in this guide also installs, backs up, restores, and removes Nix Core.
-6. Run `npm run release:check` in the source checkout.
-7. Run `npm run release:verify` after `npm run release:manifest`.
-8. Confirm the [support matrix](support-matrix.md) matches what you observed.
+1. Install Node.js 20.11+, npm, and Git; confirm their commands are available.
+2. Run `scripts/install.ps1 -DryRun` and confirm it reports the expected repository, ref, and user install target without changing files.
+3. Run the installer from a trusted source and confirm it opens the Nix TUI after installation.
+4. In the TUI, preview and install one specialist, one skill, one command surface, and an optional MCP; verify a declined confirmation changes no files.
+5. Confirm an existing unmanaged target is preserved and an unmet MCP prerequisite is reported.
+6. Confirm security hooks remain disabled until explicitly enabled.
+7. Run `nix-ai --version`, `nix-ai doctor`, and the status commands for the selected integrations.
+8. Run `npm run release:check` in the source checkout.
+9. Confirm the [support matrix](support-matrix.md) matches what you observed.
 
-The interactive TUI journey requires a real terminal. The automated release journey covers the CLI equivalents in an isolated project and state directory.
+The interactive TUI journey requires a real terminal. Automated TUI tests inject terminal input and isolate user configuration under a temporary directory; the release journey covers CLI lifecycles separately.
 
 ## Troubleshooting
 

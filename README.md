@@ -83,24 +83,17 @@ Nix owns its state under a single global home: `NIX_AI_HOME` when set, otherwise
 
 ## Getting started
 
-Install Node.js 20.11+ and run `npm install`, then use the CLI below. V1 targets Windows with OpenCode and Codex; the current executable is `nix-ai`. For the full clean-install, upgrade, rollback, and removal path, read [the installation guide](docs/installation.md).
+Nix's Windows installer installs the CLI and opens the configuration TUI. Review the installer source and prerequisites in [the installation guide](docs/installation.md). Node.js 20.11+, npm, and Git are required; OpenCode and Codex are the supported targets.
 
 ### Quick path
 
-1. Install Node.js 20.11+.
-2. Run `npm install`.
-3. Run `npm run doctor`.
-4. Explore `npm run reviewers:list`.
-5. Run `nix-ai` to open the TUI, or preview the Codex skill with `nix-ai component --action=preview --root=.`.
-6. Install it globally for Codex with `nix-ai component --action=install --root=. --yes`.
-7. From the TUI, open **Manage global security hooks** to preview and opt into destructive-operation safeguards.
-8. Enable SDD and/or TDD independently with `nix-ai workflow:configure --sdd=on --tdd=on --yes`, then inspect state with `nix-ai workflow:status`.
-9. Preview and install optional global MCP integrations with `nix-ai mcp:list` and `nix-ai mcp:preview --id=codegraph --agent=opencode --root=.`.
-10. Review the skill catalog with `nix-ai skill:list`, preview one with `nix-ai skill:preview --id=brag --agent=codex --root=.`, and install it with `nix-ai skill:install --id=brag --agent=codex --root=. --yes`.
-11. Discover workflow commands with `nix-ai workflow:commands`, then install global OpenCode commands with `nix-ai workflow:install-commands --agent=opencode --root=. --yes` or Codex skills with `--agent=codex`.
-12. Verify a release build with `npm run release:check`; the checksum manifest is written to `dist/release-manifest.json`.
+1. Install Node.js 20.11+, npm, and Git.
+2. Download and launch the PowerShell installer from the trusted Nix repository (see [the installation guide](docs/installation.md)).
+3. Choose Codex and/or OpenCode in the TUI, then preview and install the specialists, skills, and commands you want.
+4. Configure optional MCPs and SDD/TDD from the TUI; security hooks remain separately opt-in.
+5. Verify the installation with `nix-ai doctor`.
 
-Component lifecycle actions are `preview`, `install`, `update`, `backup`, `list-backups`, `restore`, and `uninstall`. Mutating actions require `--yes`; installation targets and managed records are global. The TUI offers a preview and asks for confirmation before installing or updating a global surface.
+Command-line lifecycle actions remain available for automation. The TUI is the recommended interactive path and asks before writing global configuration.
 
 ### Repository reading path
 
@@ -122,7 +115,7 @@ Component lifecycle actions are `preview`, `install`, `update`, `backup`, `list-
 | Codex Nix Core skill lifecycle | Available; installed under `~/.agents/skills/nix-core` |
 | Global destructive-operation safeguards | Available for Codex and OpenCode; opt-in, Windows shells only |
 | Optional SDD/TDD workflows | Available as independent settings with resumable project-keyed records under the Nix home; execution is exposed through the workflow command catalog |
-| Workflow command catalog | `/new-feat` (SDD), `/refactor` (TDD), `/new-idea` (blind-judge), and `/new-project` (project skill/agent generator); CLI executor, global OpenCode commands, and Codex user skills |
+| Workflow command catalog | `/new-feat` (SDD), `/refactor` (TDD), `/new-idea` (blind-judge), `/new-project` (project skill/agent generator), `/araxys` (consumer-only integration), and `/security-audit` (coverage-first audit); CLI executor, global OpenCode commands, and Codex user skills |
 | Optional MCP integrations | Playwright, CodeGraph, and Engram available globally for OpenCode and Codex via CLI |
 | Stack-aware skill catalog | Seven external skills pinned by commit, installed globally for OpenCode and Codex; compatibility matrix and authoring path available |
 | Blind-judge idea evaluation | Isolated pro/con groups, five neutral evaluators, bounded synthesis, audit hashes, and a project skill; available through `/new-idea` and `workflow:command` |

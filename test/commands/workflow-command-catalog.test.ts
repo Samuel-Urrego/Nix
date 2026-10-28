@@ -20,8 +20,8 @@ function state(overrides: Partial<StackState> = {}): StackState {
 }
 
 test("the command catalog declares the supported commands and their mappings", () => {
-  assert.equal(workflowCommandCatalog.length, 4);
-  assert.deepEqual(workflowCommandCatalog.map((command) => command.slash), ["/new-feat", "/refactor", "/new-idea", "/new-project"]);
+  assert.equal(workflowCommandCatalog.length, 6);
+  assert.deepEqual(workflowCommandCatalog.map((command) => command.slash), ["/new-feat", "/refactor", "/new-idea", "/new-project", "/araxys", "/security-audit"]);
 
   const newFeat = getCommandAvailability(state(), "new-feat");
   assert.equal(newFeat.command.workflowKind, "sdd");
@@ -38,6 +38,11 @@ test("the command catalog declares the supported commands and their mappings", (
   assert.deepEqual(newIdea.command.requiredComponents, []);
   assert.equal(isWorkflowCommandId("new-feat"), true);
   assert.equal(isWorkflowCommandId("new-project"), true);
+  assert.equal(getCommandAvailability(state(), "araxys").command.skillId, "araxys-integration");
+  assert.equal(isWorkflowCommandId("araxys"), true);
+  assert.equal(getCommandAvailability(state(), "security-audit").command.skillId, "security-audit");
+  assert.equal(getCommandAvailability(state(), "security-audit").command.codexSkillId, undefined);
+  assert.equal(isWorkflowCommandId("security-audit"), true);
   assert.equal(isWorkflowCommandId("unknown"), false);
 });
 

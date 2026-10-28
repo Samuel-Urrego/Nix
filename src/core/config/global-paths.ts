@@ -89,6 +89,10 @@ export function getOpenCodeCommandsDirectory(environment: NodeJS.ProcessEnv = pr
   return path.join(getOpenCodeConfigDirectory(environment), "commands");
 }
 
+export function getOpenCodeAgentsDirectory(environment: NodeJS.ProcessEnv = process.env): string {
+  return path.join(getOpenCodeConfigDirectory(environment), "agents");
+}
+
 export function getOpenCodeSkillsDirectory(environment: NodeJS.ProcessEnv = process.env): string {
   return path.join(getOpenCodeConfigDirectory(environment), "skills");
 }
@@ -108,6 +112,14 @@ export function getCodexConfigPath(environment: NodeJS.ProcessEnv = process.env)
 
 export function getCodexHooksPath(environment: NodeJS.ProcessEnv = process.env): string {
   return path.join(getCodexHome(environment), "hooks.json");
+}
+
+export function getCodexAgentsDirectory(environment: NodeJS.ProcessEnv = process.env): string {
+  return path.join(getCodexHome(environment), "agents");
+}
+
+export function getManagedAgentsPath(environment: NodeJS.ProcessEnv = process.env): string {
+  return path.join(getManagedDirectory(environment), "agents.json");
 }
 
 export function getCodexUserSkillsDirectory(environment: NodeJS.ProcessEnv = process.env): string {
