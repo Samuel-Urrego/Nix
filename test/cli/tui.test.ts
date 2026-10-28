@@ -397,6 +397,31 @@ test("install everything also installs the Nix specialist agents for each detect
   });
 });
 
+test("cancelling a guided install step with Escape writes nothing", async () => {
+  await withTuiSandbox(async ({ root, environment, restore }) => {
+    try {
+      await writeDetectedTargets(environment);
+      const { output, transcript } = scriptedOutput();
+      const answers = ["1", "2"];
+      await runTui({
+        output,
+        ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; },
+        multiSelect: async () => undefined,
+        skillOptions: bundledSkillsOnly
+      });
+
+      assert.match(transcript(), /╭ INSTALL TARGETS/);
+      assert.match(transcript(), /INSTALL CANCELLED/);
+      await assert.rejects(
+        readFile(path.join(root, "config", "opencode", "commands", "new-feat.md"), "utf8"),
+        "cancelling must not install any command"
+      );
+    } finally {
+      await restore();
+    }
+  });
+});
+
 test("each guided install step replaces the previous screen instead of stacking panels", async () => {
   await withTuiSandbox(async ({ root, environment, restore }) => {
     try {

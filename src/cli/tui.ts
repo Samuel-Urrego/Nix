@@ -28,7 +28,7 @@ export interface TuiOptions {
   readonly output?: NodeJS.WritableStream;
   readonly ask?: (prompt: string) => Promise<string>;
   readonly select?: (prompt: string, choices: readonly string[]) => Promise<number>;
-  readonly multiSelect?: (prompt: string, choices: readonly string[], initialSelected: readonly number[]) => Promise<readonly number[]>;
+  readonly multiSelect?: (prompt: string, choices: readonly string[], initialSelected: readonly number[]) => Promise<readonly number[] | undefined>;
   readonly detect?: () => Promise<ReadonlyArray<AgentDetection>>;
   readonly upgrade?: UpgradeRunner;
   readonly latestVersion?: LatestVersionResolver;
@@ -38,7 +38,7 @@ export interface TuiOptions {
 interface TuiTerminal {
   question(prompt: string): Promise<string>;
   select(prompt: string, choices: readonly string[], title?: string, banner?: readonly string[], initialIndex?: number): Promise<number>;
-  multiSelect(prompt: string, choices: readonly string[], title: string, initialSelected?: readonly number[]): Promise<readonly number[]>;
+  multiSelect(prompt: string, choices: readonly string[], title: string, initialSelected?: readonly number[]): Promise<readonly number[] | undefined>;
   /** Yes/No selection. Defaults to No so an accidental Enter changes nothing. */
   confirm(prompt: string, yesLabel?: string, noLabel?: string): Promise<boolean>;
   /** Writes a framed report panel. */
@@ -112,7 +112,7 @@ function createTuiTerminal(options: TuiOptions, input: NodeJS.ReadableStream, ou
     choices: readonly string[],
     title: string,
     initialSelected: readonly number[] = []
-  ): Promise<readonly number[]> => {
+  ): Promise<readonly number[] | undefined> => {
     if (options.multiSelect) {
       writeFrame(output, title, [prompt, "", ...choices.map((choice, index) => ` [${initialSelected.includes(index) ? "x" : " "}] ${choice}`), "", "↑↓ Navigate · Space Toggle · Enter Confirm · Esc Back"]);
       return options.multiSelect(prompt, choices, initialSelected);
@@ -298,6 +298,10 @@ async function runGuidedInstall(
       "INSTALL TARGETS",
       available.map((_detection, index) => index)
     );
+    if (targetPicks === undefined) {
+      await pause(terminal, output, "INSTALL CANCELLED", ["Back to the previous step. No files changed."]);
+      return;
+    }
     targets = targetPicks.map((index) => available[index]?.agent).filter((agent): agent is SkillAgent => agent !== undefined);
     if (targets.length === 0) {
       await pause(terminal, output, "INSTALL CANCELLED", ["No target selected. No files changed."]);
@@ -326,6 +330,10 @@ async function runGuidedInstall(
       "GLOBAL SKILLS",
       skillEntries.map((_entry, index) => index)
     );
+    if (skillPicks === undefined) {
+      await pause(terminal, output, "INSTALL CANCELLED", ["Back to the previous step. No files changed."]);
+      return;
+    }
     skills = skillPicks.map((index) => skillEntries[index]).filter((entry) => entry !== undefined);
   }
 

@@ -4,6 +4,21 @@ import test from "node:test";
 
 import { createProgress, multiSelectWithKeyboard, selectWithKeyboard, writeFrame } from "../../src/cli/tui-keyboard.js";
 
+/** Fails loudly instead of hanging the suite when a selector never answers. */
+async function withDeadline<T>(pending: Promise<T>, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      pending,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), 200);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function fakeInput(): PassThrough & {
   isTTY: boolean;
   isRaw: boolean;
@@ -42,6 +57,51 @@ test("selector starts on the requested index", async () => {
     assert.match(transcript, /› No, cancel/);
     input.write("\r");
     assert.equal(await pendingSelection, 1);
+  } finally {
+    input.destroy();
+    output.destroy();
+  }
+});
+
+test("a lone Escape cancels the selector instead of being swallowed by the escape-sequence parser", async () => {
+  const input = fakeInput();
+  const output = new PassThrough() as PassThrough & { columns: number };
+  output.columns = 48;
+  output.resume();
+
+  try {
+    const pendingSelection = selectWithKeyboard({
+      input: input as unknown as NodeJS.ReadStream,
+      output,
+      prompt: "Confirm",
+      choices: ["Yes, install", "No, cancel"]
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    input.write("\u001b");
+    assert.equal(await withDeadline(pendingSelection, "the selector never answered a lone Escape"), -1);
+  } finally {
+    input.destroy();
+    output.destroy();
+  }
+});
+
+test("Escape in a multi-select cancels instead of confirming an empty selection", async () => {
+  const input = fakeInput();
+  const output = new PassThrough() as PassThrough & { columns: number };
+  output.columns = 48;
+  output.resume();
+
+  try {
+    const pending = multiSelectWithKeyboard({
+      input: input as unknown as NodeJS.ReadStream,
+      output,
+      prompt: "Pick skills",
+      choices: ["alpha", "beta"],
+      initialSelected: [0, 1]
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    input.write("\u001b");
+    assert.equal(await withDeadline(pending, "the multi-select never answered a lone Escape"), undefined);
   } finally {
     input.destroy();
     output.destroy();
@@ -149,7 +209,7 @@ test("multi-select toggles items with space and returns only the checked indexes
   }
 });
 
-test("multi-select returns an empty selection when escaped", async () => {
+test("multi-select reports a cancel when escaped instead of an empty selection", async () => {
   const input = new PassThrough() as PassThrough & {
     isTTY: boolean;
     isRaw: boolean;
@@ -173,7 +233,7 @@ test("multi-select returns an empty selection when escaped", async () => {
     await new Promise((resolve) => setImmediate(resolve));
     input.write("\u001b");
 
-    assert.deepEqual(await pendingSelection, []);
+    assert.equal(await pendingSelection, undefined);
   } finally {
     input.destroy();
     output.destroy();
