@@ -102,6 +102,8 @@ export class SecurityHooksInstaller {
     const config = await readCodexConfig(configPath);
     const assets = await this.readRuntimeAssets();
     const command = this.codexCommand();
+    await ensureSafeDirectoryAbsolute(this.codexAssetDirectory(), false);
+    await ensureSafeDirectoryAbsolute(this.opencodeAssetDirectory(), false);
     await preflightAssetRemoval(this.codexAssetDirectory(), assets);
     await preflightAssetRemoval(this.opencodeAssetDirectory(), assets);
     const entry = findManagedCodexEntry(config, command);
@@ -218,10 +220,39 @@ async function preflightAssetRemoval(directory: string, expected: ReadonlyMap<st
   }
 }
 
-async function ensureSafeDirectoryAbsolute(directory: string): Promise<void> {
-  await mkdir(directory, { recursive: true });
-  const info = await lstat(directory);
-  if (!info.isDirectory() || info.isSymbolicLink()) throw new Error(`Refusing a non-directory or symlink in global security hook target: ${directory}`);
+async function ensureSafeDirectoryAbsolute(directory: string, createMissing = true): Promise<void> {
+  const absolute = path.resolve(directory);
+  const { root } = path.parse(absolute);
+  let current = root;
+  await assertRealDirectory(current, directory);
+
+  for (const segment of path.relative(root, absolute).split(path.sep).filter(Boolean)) {
+    current = path.join(current, segment);
+    try {
+      const info = await lstat(current);
+      if (!info.isDirectory() || info.isSymbolicLink()) {
+        throw new Error(`Refusing a non-directory or symlink in global security hook target: ${directory}`);
+      }
+    } catch (error) {
+      if (!isMissing(error) || !createMissing) {
+        if (isMissing(error) && !createMissing) return;
+        throw error;
+      }
+      try {
+        await mkdir(current);
+      } catch (mkdirError) {
+        if (!isExists(mkdirError)) throw mkdirError;
+      }
+      await assertRealDirectory(current, directory);
+    }
+  }
+}
+
+async function assertRealDirectory(current: string, target: string): Promise<void> {
+  const info = await lstat(current);
+  if (!info.isDirectory() || info.isSymbolicLink()) {
+    throw new Error(`Refusing a non-directory or symlink in global security hook target: ${target}`);
+  }
 }
 
 async function directoryHasFiles(directory: string, names: ReadonlyArray<string>): Promise<boolean> {
@@ -236,3 +267,4 @@ async function writeJsonAtomically(filePath: string, value: unknown): Promise<vo
 
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function isMissing(error: unknown): boolean { return typeof error === "object" && error !== null && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT"; }
+function isExists(error: unknown): boolean { return typeof error === "object" && error !== null && "code" in error && (error as NodeJS.ErrnoException).code === "EEXIST"; }
