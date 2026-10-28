@@ -1,0 +1,10 @@
+# Keep every text file checked out with LF so tests and tools behave the same on
+# Windows, macOS, and Linux. Without this, core.autocrlf=true rewrites the working
+# tree to CRLF on Windows and CRLF-sensitive assertions fail only on CI.
+* text=auto eol=lf
+
+# Binary assets keep their original bytes.
+*.png binary
+*.jpg binary
+*.ico binary
+*.tgz binary
