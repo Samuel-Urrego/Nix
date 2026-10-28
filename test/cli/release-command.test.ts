@@ -45,7 +45,8 @@ test("release:manifest writes a checksum manifest and release:verify accepts it"
     const json = runCli(["release:manifest", `--root=${value.projectRoot}`, "--json"], value.appData);
     assert.equal(json.status, 0, json.stderr);
     const manifest = JSON.parse(json.stdout) as { files: Array<{ path: string }>; version: string };
-    assert.equal(manifest.version, "0.1.0");
+    const packageJson = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8")) as { version: string };
+    assert.equal(manifest.version, packageJson.version);
     assert.deepEqual(manifest.files.map((file) => file.path), ["README.txt", "cli/index.js"]);
 
     const written = runCli(

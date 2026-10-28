@@ -159,7 +159,7 @@ nix-ai --version
 To pin a specific version, install it explicitly:
 
 ```powershell
-npm install --global nix-ai-stack@0.1.0
+npm install --global nix-ai-stack@0.1.1
 ```
 
 ## Update a managed component

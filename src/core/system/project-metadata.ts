@@ -9,7 +9,7 @@ export interface ProjectMetadata {
 export const projectMetadata: ProjectMetadata = {
   name: "Nix",
   packageName: "nix-ai-stack",
-  version: "0.1.0",
+  version: "0.1.1",
   runtime: "TypeScript / Node.js",
   packageManager: "npm-compatible"
 };
