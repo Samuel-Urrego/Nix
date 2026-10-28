@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Verify the tag matches the package version
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ("v$version" -ne "${{ github.ref_name }}") {
+            throw "Tag ${{ github.ref_name }} does not match package version v$version. Update package.json before tagging."
+          }
+
+      - name: Pack the release artifact
+        run: npm pack
+
+      - name: Publish the release asset
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $tarball = Get-ChildItem -Filter "nix-ai-stack-*.tgz" | Select-Object -First 1
+          if ($null -eq $tarball) {
+            throw "npm pack did not produce an artifact."
+          }
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $tarball.FullName --clobber
+          } else {
+            gh release create $tag $tarball.FullName --title $tag --notes "Automated release for $tag. The attached tarball is prebuilt, so the installer can install it with --ignore-scripts."
+          }

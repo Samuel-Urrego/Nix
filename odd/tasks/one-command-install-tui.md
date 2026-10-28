@@ -10,14 +10,26 @@ Branch: `codex/one-command-install-tui` | Delivery strategy: `ask-on-risk` | Cha
 User request: “Si recuerda que la idea es que se instale, y luego desde la TUI configurarlo, puedes hacer esos cambios plis?”
 
 Acceptance:
-- Provide one Windows PowerShell bootstrap script that installs/updates the Nix CLI from the configured Nix repository, checks prerequisites, and opens the Nix TUI after a successful build/link.
+- Provide one Windows PowerShell bootstrap script that installs the Nix CLI from the newest `v*` release tag and opens the Nix TUI afterwards.
+- The installed artifact is a prebuilt release tarball and is installed with `npm install --global --ignore-scripts`, so no package lifecycle script runs on the user's machine.
 - Script is idempotent, fails with actionable messages, preserves user files and avoids destructive cleanup.
 - Every handled failure prints a stable, copyable error code; unexpected failures use a documented fallback code.
 - It must never change the Araxys repository.
 
-Assumption: Bootstrap targets the configured public source repository `https://github.com/Samuel-Urrego/Nix.git` because no published npm package/release artifact is currently configured.
+Assumption: a branch is never installed. Testing unreleased code uses `npm link` from a source checkout instead of an installer flag.
 
 Risk: item 5 — installer changes the user's local tool installation and PATH only when necessary.
+
+### S4 — Tagged release artifacts
+
+User request: “la idea es que siempre se instale sobre la ultima git tag, no desde la rama main baby”
+
+Acceptance:
+- Each `v*` tag publishes `nix-ai-stack-<version>.tgz` as a GitHub release asset containing a built `dist/`.
+- The installer resolves the newest tag with `git ls-remote --tags --refs --sort=-v:refname` and fails with a stable code when no tag or artifact exists instead of falling back to source.
+- The release process that produces the artifact is documented next to the existing manifest tooling.
+
+Risk: item 5 — a broken or missing release artifact blocks every new installation.
 
 ### S2 — TUI is the configuration surface
 
@@ -46,6 +58,7 @@ Checks: Structural doc readback and links.
 | T1 | S1 | Inline | Partial — stable failure codes and docs added; parent checks pass, independent scratch verification unavailable | `6064bc1` |
 | T2 | S2 | Inline | Done — TUI agent, MCP, and command managers reuse existing safe installers; install-decline test confirms no target writes | `6064bc1`, `9206bd4` |
 | T3 | S3 | Inline | Done — one-command install and TUI path documented; local guide links and acceptance section checked | `6064bc1` |
+| T4 | S1, S4 | Inline | Done — tag-resolved release artifact install with `--ignore-scripts`; happy path and `NIX-INST-016` verified against the published `v0.1.0` release | pending commit |
 
 ## Log
 
@@ -64,3 +77,8 @@ Checks: Structural doc readback and links.
 - L12 — Added regression test 9206bd4: declining agent, MCP, and workflow-command installations leaves all candidate global files and ownership manifests absent; full suite remains green.
 - L13 — User request: “Que algo salio mal y un codigo de error bb, tenes que hacer que el catch diga un codigo de error que tu entiendas por cada caso que pueda fallar y ya yo te lo paso :D”
 - L14 — Added stable installer codes `NIX-INST-001`–`015` for handled failures and `NIX-INST-999` for unexpected errors, with a troubleshooting table and invalid-ref behavior test. Parent checks pass: 134 tests passed, 1 Windows symlink test skipped, typecheck/build/diff-check pass. The independent verifier could not create its mandated system-temp scratch copy because access was denied; its checks and baseline comparison remain unavailable, so T1 stays partial and is not published.
+- L15 — After merge to `main`, verification of the published installer found the Git-source install broken: `npm install --global ... git+https://…#main` fails because npm's nested Git-dependency preparation runs without devDependencies, so `prepare` cannot run `tsc`. With `--ignore-scripts` the same install instead succeeds silently while creating neither `dist/` nor the CLI shim.
+- L16 — User request: “si estamos instalando con npm hay que agregar porfa la flag de --ignore-scripts” and “la idea es que siempre se instale sobre la ultima git tag, no desde la rama main baby”.
+- L17 — `v0.1.0` created on `main` (34f16ac) and published with a prebuilt `nix-ai-stack-0.1.0.tgz` asset. The installer now resolves the newest `v*` tag, downloads that asset, and installs it with `--ignore-scripts`; `-Ref` was removed, and `NIX-INST-015`/`016`/`017` cover tag resolution, artifact download, and version mismatch.
+- L18 — Verification: `npm run typecheck` clean; `npm test` 135 passed, 0 failed. Isolated end-to-end run against the published release with a redirected `LOCALAPPDATA` resolved `v0.1.0`, installed in 3s, reported `Installed Nix 0.1.0`, honored a declined PATH change, and exited 0; the installed CLI answered `--version` and `doctor`, with no dev dependencies present. A temporary `v99.9.9` tag without an asset produced `NIX-INST-016` and exit 1, then the tag was deleted. The interactive TUI launch was not exercised because it requires a real terminal.
+- L19 — User request: “shi y mergea tambien la pr porfa” — set up automated release publication. Added `.github/workflows/release.yml`: on a `v*` tag push it installs, builds, runs the suite, refuses a tag that does not match the package version, packs, and creates or updates the GitHub release with the tarball attached. Documented the workflow in `docs/release.md` and kept the manual `gh release create` as a fallback.
