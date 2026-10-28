@@ -1,0 +1,492 @@
+import assert from "node:assert/strict";
+import { PassThrough } from "node:stream";
+import test from "node:test";
+
+import { buildFrame, createProgress, multiSelectWithKeyboard, Screen, selectWithKeyboard, writeFrame } from "../../src/cli/tui-keyboard.js";
+import { layoutScreen } from "../../src/cli/tui-screen.js";
+
+/** Fails loudly instead of hanging the suite when a selector never answers. */
+async function withDeadline<T>(pending: Promise<T>, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      pending,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), 200);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function fakeInput(): PassThrough & {
+  isTTY: boolean;
+  isRaw: boolean;
+  setRawMode: (mode: boolean) => PassThrough;
+} {
+  const input = new PassThrough() as PassThrough & {
+    isTTY: boolean;
+    isRaw: boolean;
+    setRawMode: (mode: boolean) => PassThrough;
+  };
+  input.isTTY = true;
+  input.isRaw = false;
+  input.setRawMode = (mode) => {
+    input.isRaw = mode;
+    return input;
+  };
+  return input;
+}
+
+test("selector starts on the requested index", async () => {
+  const input = fakeInput();
+  const output = new PassThrough() as PassThrough & { columns: number };
+  output.columns = 48;
+  let transcript = "";
+  output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
+
+  try {
+    const pendingSelection = selectWithKeyboard({
+      input: input as unknown as NodeJS.ReadStream,
+      output,
+      prompt: "Confirm",
+      choices: ["Yes, install", "No, cancel"],
+      initialIndex: 1
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.match(transcript, /› No, cancel/);
+    input.write("\r");
+    assert.equal(await pendingSelection, 1);
+  } finally {
+    input.destroy();
+    output.destroy();
+  }
+});
+
+test("a lone Escape cancels the selector instead of being swallowed by the escape-sequence parser", async () => {
+  const input = fakeInput();
+  const output = new PassThrough() as PassThrough & { columns: number };
+  output.columns = 48;
+  output.resume();
+
+  try {
+    const pendingSelection = selectWithKeyboard({
+      input: input as unknown as NodeJS.ReadStream,
+      output,
+      prompt: "Confirm",
+      choices: ["Yes, install", "No, cancel"]
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    input.write("\u001b");
+    assert.equal(await withDeadline(pendingSelection, "the selector never answered a lone Escape"), -1);
+  } finally {
+    input.destroy();
+    output.destroy();
+  }
+});
+
+test("Escape in a multi-select cancels instead of confirming an empty selection", async () => {
+  const input = fakeInput();
+  const output = new PassThrough() as PassThrough & { columns: number };
+  output.columns = 48;
+  output.resume();
+
+  try {
+    const pending = multiSelectWithKeyboard({
+      input: input as unknown as NodeJS.ReadStream,
+      output,
+      prompt: "Pick skills",
+      choices: ["alpha", "beta"],
+      initialSelected: [0, 1]
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    input.write("\u001b");
+    assert.equal(await withDeadline(pending, "the multi-select never answered a lone Escape"), undefined);
+  } finally {
+    input.destroy();
+    output.destroy();
+  }
+});
+
+test("a selector created after a cancelled one still moves with arrow keys", async () => {
+  const input = fakeInput();
+  const output = new PassThrough() as PassThrough & { columns: number };
+  output.columns = 48;
+  output.resume();
+
+  try {
+    const first = selectWithKeyboard({
+      input: input as unknown as NodeJS.ReadStream,
+      output,
+      prompt: "First",
+      choices: ["Yes, install", "No, cancel"]
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    input.write("\u001b");
+    assert.equal(await withDeadline(first, "the first selector never answered Escape"), -1);
+
+    // The reported freeze: the home selector after an Escape ignored the arrows.
+    const second = selectWithKeyboard({
+      input: input as unknown as NodeJS.ReadStream,
+      output,
+      prompt: "Second",
+      choices: ["One", "Two", "Three"]
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    input.write("\u001b[");
+    input.write("B");
+    input.write("\r");
+    assert.equal(await withDeadline(second, "the selector after Escape ignored the arrow key"), 1);
+  } finally {
+    input.destroy();
+    output.destroy();
+  }
+});
+
+test("frame rows never fill the last terminal column", () => {
+  const columns = 76;
+  const frame = buildFrame("CONFIRM", ["Apply these global changes?", "", "Yes, install", "No, cancel"], columns);
+
+  const widest = Math.max(...frame.map((row) => row.length));
+  assert.ok(
+    frame.every((row) => row.length < columns),
+    `a row exactly ${columns} wide auto-wraps in the terminal and every in-place redraw after it lands one row off (widest: ${widest})`
+  );
+});
+
+test("the viewport paints exactly the screen height with the key hint on the last row", () => {
+  const output = new PassThrough() as PassThrough & { columns: number; rows: number };
+  output.columns = 80;
+  output.rows = 12;
+  let transcript = "";
+  output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
+
+  const screen = new Screen(output as unknown as NodeJS.WriteStream);
+  const layout = layoutScreen({
+    title: "CONFIRM",
+    lines: ["Apply these global changes?", "", "› Yes, install", "  No, cancel"],
+    scroll: 0,
+    columns: screen.columns,
+    rows: screen.rows,
+    footer: "↑↓ Navigate · Enter Select · Esc Back"
+  });
+  screen.paint(layout.lines);
+
+  const painted = transcript.replace(/^\u001b\[H/, "").split("\r\n");
+  assert.equal(painted.length, 12, "the viewport always fills the screen exactly");
+  assert.match(painted[0] ?? "", /^╭ CONFIRM/);
+  assert.match(painted[10] ?? "", /^╰─+╯$/, "the frame closes above the hint");
+  assert.equal(painted[11]?.trimEnd(), "↑↓ Navigate · Enter Select · Esc Back");
+});
+
+test("content taller than the viewport scrolls inside its own frame", () => {
+  const lines = Array.from({ length: 100 }, (_value, index) => `line ${index}`);
+  const first = layoutScreen({ title: "REPORT", lines, scroll: 0, columns: 80, rows: 12, footer: "hint" });
+  const scrolled = layoutScreen({ title: "REPORT", lines, scroll: 50, columns: 80, rows: 12, footer: "hint" });
+
+  assert.equal(first.total, 100);
+  assert.equal(first.bodyRows, 9);
+  assert.equal(first.lines.length, 12, "the frame never grows past the viewport");
+  assert.match(first.lines[1] ?? "", /line 0/);
+  assert.match(scrolled.lines[1] ?? "", /line 50/, "scrolling moves the window, not the screen");
+  assert.equal(scrolled.scroll, 50);
+});
+
+test("progress reporter fills a framed bar as steps complete", () => {
+  const output = new PassThrough();
+  let transcript = "";
+  output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
+
+  const progress = createProgress(output, "INSTALLING", 4);
+  progress.update(0, "Starting");
+  progress.update(2, "Halfway");
+  progress.finish(["Installed: 4"]);
+
+  assert.match(transcript, /╭ INSTALLING/);
+  assert.match(transcript, /0\/4/);
+  assert.match(transcript, /2\/4/);
+  assert.match(transcript, /█/);
+  assert.match(transcript, /░/);
+  assert.match(transcript, /Starting/);
+  assert.match(transcript, /Installed: 4/);
+});
+
+test("keyboard selector moves with arrow keys and returns the highlighted option", async () => {
+  const input = new PassThrough() as PassThrough & {
+    isTTY: boolean;
+    isRaw: boolean;
+    setRawMode: (mode: boolean) => PassThrough;
+  };
+  input.isTTY = true;
+  input.isRaw = false;
+  input.setRawMode = (mode) => {
+    input.isRaw = mode;
+    return input;
+  };
+  const output = new PassThrough() as PassThrough & { columns: number };
+  output.columns = 48;
+  let transcript = "";
+  output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
+
+  try {
+    const pendingSelection = selectWithKeyboard({
+      input: input as unknown as NodeJS.ReadStream,
+      output,
+      prompt: "Choose an action",
+      choices: ["Install", "Update", "Quit"]
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    input.write("\u001b[B\r");
+
+    assert.equal(await pendingSelection, 1);
+    assert.equal(input.isRaw, false);
+    assert.match(transcript, /Choose an action/);
+    assert.match(transcript, /↑↓/);
+    assert.match(transcript, /› Update/);
+    const frameRows = transcript.split("\n").filter((line) => line.startsWith("╭") || line.startsWith("│") || line.startsWith("╰"));
+    assert.ok(frameRows.every((line) => line.length <= 48));
+  } finally {
+    input.destroy();
+    output.destroy();
+  }
+});
+
+test("multi-select toggles items with space and returns only the checked indexes", async () => {
+  const input = new PassThrough() as PassThrough & {
+    isTTY: boolean;
+    isRaw: boolean;
+    setRawMode: (mode: boolean) => PassThrough;
+  };
+  input.isTTY = true;
+  input.isRaw = false;
+  input.setRawMode = (mode) => {
+    input.isRaw = mode;
+    return input;
+  };
+  const output = new PassThrough() as PassThrough & { columns: number };
+  output.columns = 60;
+  let transcript = "";
+  output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
+
+  try {
+    const pendingSelection = multiSelectWithKeyboard({
+      input: input as unknown as NodeJS.ReadStream,
+      output,
+      prompt: "Where should Nix install?",
+      choices: ["OpenCode", "Codex", "Both"],
+      initialSelected: [1]
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    input.write(" ");
+    input.write("\u001b[B");
+    input.write(" ");
+    input.write(" ");
+    input.write("\r");
+
+    assert.deepEqual(await pendingSelection, [0, 1]);
+    assert.equal(input.isRaw, false);
+    assert.match(transcript, /\[x\] Codex/);
+    assert.match(transcript, /Space Toggle/);
+  } finally {
+    input.destroy();
+    output.destroy();
+  }
+});
+
+test("multi-select reports a cancel when escaped instead of an empty selection", async () => {
+  const input = new PassThrough() as PassThrough & {
+    isTTY: boolean;
+    isRaw: boolean;
+    setRawMode: (mode: boolean) => PassThrough;
+  };
+  input.isTTY = true;
+  input.isRaw = false;
+  input.setRawMode = (mode) => {
+    input.isRaw = mode;
+    return input;
+  };
+  const output = new PassThrough();
+
+  try {
+    const pendingSelection = multiSelectWithKeyboard({
+      input: input as unknown as NodeJS.ReadStream,
+      output,
+      prompt: "Choose skills",
+      choices: ["One", "Two"]
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    input.write("\u001b");
+
+    assert.equal(await pendingSelection, undefined);
+  } finally {
+    input.destroy();
+    output.destroy();
+  }
+});
+
+test("selector renders its banner above the frame", async () => {
+  const input = new PassThrough() as PassThrough & {
+    isTTY: boolean;
+    isRaw: boolean;
+    setRawMode: (mode: boolean) => PassThrough;
+  };
+  input.isTTY = true;
+  input.isRaw = false;
+  input.setRawMode = (mode) => {
+    input.isRaw = mode;
+    return input;
+  };
+  const output = new PassThrough() as PassThrough & { columns: number };
+  output.columns = 80;
+  let transcript = "";
+  output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
+
+  try {
+    const pendingSelection = selectWithKeyboard({
+      input: input as unknown as NodeJS.ReadStream,
+      output,
+      prompt: "Choose",
+      choices: ["One"],
+      banner: ["⠀⣀⡀⠀"]
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    input.write("\r");
+    await pendingSelection;
+
+    const bannerIndex = transcript.indexOf("⠀⣀⡀⠀");
+    assert.ok(bannerIndex >= 0, "banner is rendered");
+    assert.ok(bannerIndex < transcript.indexOf("Choose"), "banner precedes the prompt inside the viewport");
+  } finally {
+    input.destroy();
+    output.destroy();
+  }
+});
+
+test("multi-select filters with the search text and toggles all visible rows", async () => {
+  const input = new PassThrough() as PassThrough & {
+    isTTY: boolean;
+    isRaw: boolean;
+    setRawMode: (mode: boolean) => PassThrough;
+  };
+  input.isTTY = true;
+  input.isRaw = false;
+  input.setRawMode = (mode) => {
+    input.isRaw = mode;
+    return input;
+  };
+  const output = new PassThrough() as PassThrough & { columns: number };
+  output.columns = 80;
+  let transcript = "";
+  output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
+
+  try {
+    const pendingSelection = multiSelectWithKeyboard({
+      input: input as unknown as NodeJS.ReadStream,
+      output,
+      prompt: "Which skills?",
+      choices: ["Brag video", "Python FastAPI", "Araxys integration"],
+      initialSelected: [0, 1, 2]
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.match(transcript, /3\/3 selected/);
+    input.write("python");
+    input.write(" ");
+    input.write("\r");
+
+    assert.deepEqual(await pendingSelection, [0, 2]);
+    assert.match(transcript, /Search: python/);
+    assert.match(transcript, /Next → {2}\(2\/3 selected\)/);
+  } finally {
+    input.destroy();
+    output.destroy();
+  }
+});
+
+test("multi-select toggles every visible row with `a`", async () => {
+  const input = new PassThrough() as PassThrough & {
+    isTTY: boolean;
+    isRaw: boolean;
+    setRawMode: (mode: boolean) => PassThrough;
+  };
+  input.isTTY = true;
+  input.isRaw = false;
+  input.setRawMode = (mode) => {
+    input.isRaw = mode;
+    return input;
+  };
+  const output = new PassThrough() as PassThrough & { columns: number };
+  output.columns = 80;
+
+  try {
+    const pendingSelection = multiSelectWithKeyboard({
+      input: input as unknown as NodeJS.ReadStream,
+      output,
+      prompt: "Targets",
+      choices: ["One", "Two"],
+      initialSelected: [0, 1]
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    input.write("a");
+    input.write("\r");
+
+    assert.deepEqual(await pendingSelection, []);
+  } finally {
+    input.destroy();
+    output.destroy();
+  }
+});
+
+test("redrawing a selection does not clear the screen again", async () => {
+  const input = new PassThrough() as PassThrough & {
+    isTTY: boolean;
+    isRaw: boolean;
+    setRawMode: (mode: boolean) => PassThrough;
+  };
+  input.isTTY = true;
+  input.isRaw = false;
+  input.setRawMode = (mode) => {
+    input.isRaw = mode;
+    return input;
+  };
+  const output = new PassThrough() as PassThrough & { columns: number };
+  output.columns = 80;
+  let transcript = "";
+  output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
+
+  try {
+    const pendingSelection = selectWithKeyboard({
+      input: input as unknown as NodeJS.ReadStream,
+      output,
+      prompt: "Choose",
+      choices: ["One", "Two"]
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    input.write("\u001b[B");
+    input.write("\u001b[B");
+    input.write("\r");
+    await pendingSelection;
+
+    assert.doesNotMatch(transcript, /\u001b\[2J/, "no full-screen clear is used");
+    assert.equal((transcript.match(/\u001b\[H/g) ?? []).length, 3, "every key repaints the whole viewport in place");
+    assert.match(transcript, /› One/, "first frame highlights the first row");
+    assert.match(transcript, /› One[\s\S]*› Two/, "later frames highlight the moved row");
+  } finally {
+    input.destroy();
+    output.destroy();
+  }
+});
+
+test("frame stays within narrow terminal width", () => {  const output = new PassThrough() as PassThrough & { columns: number };
+  output.columns = 20;
+  let transcript = "";
+  output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
+
+  try {
+    writeFrame(output, "GLOBAL SECURITY HOOKS", ["A long option that needs wrapping"]);
+    const frameRows = transcript.split("\n").filter((line) => line.startsWith("╭") || line.startsWith("│") || line.startsWith("╰"));
+    assert.ok(frameRows.every((line) => line.length <= 20));
+  } finally {
+    output.destroy();
+  }
+});

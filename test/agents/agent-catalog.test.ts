@@ -20,7 +20,58 @@ test("Araxys specialist is a Nix-owned consumer-only role for both global agent 
   assert.match(python.instructions, /FastAPI/i);
   assert.match(python.instructions, /async boundaries/i);
   assert.match(python.instructions, /Araxys-specific guidance in the dedicated araxys-integration skill/i);
-  assert.equal(specialistAgentCatalog.length, 2);
+  assert.equal(specialistAgentCatalog.length, 4);
+});
+
+test("Nix orchestrator is an OpenCode primary agent that runs the ODD flow", () => {
+  const nix = findSpecialistAgent("nix");
+  assert.ok(nix);
+  assert.equal(nix.name, "Nix");
+  assert.equal(nix.source, "nix-catalog");
+  assert.equal(nix.ownership, "nix");
+  assert.deepEqual(nix.supportedAgents, ["opencode"]);
+  assert.equal(nix.mode, "primary");
+  for (const marker of [
+    "Organic Driven Development",
+    "AUTHORIZE",
+    "EXPLORE",
+    "CLASSIFY",
+    "TRACK",
+    "IMPLEMENT",
+    "VERIFY",
+    "CLOSE",
+    "Delegation",
+    "Work units and commits",
+    "Risk classification",
+  ]) {
+    assert.match(nix.instructions, new RegExp(marker), `the orchestrator prompt must define ${marker}`);
+  }
+  assert.match(nix.instructions, /Never claim a result you have not observed/i);
+  assert.match(nix.instructions, /Push, pull requests, merges, and releases are the user's decisions/i);
+  // Nix must route work through the installed skills and the specialist roster.
+  for (const marker of [
+    "Skills",
+    "Specialist subagents",
+    "skill tool",
+    "never invent a skill id",
+    "araxys-specialist",
+    "python-fastapi-specialist",
+    "skill-runner",
+  ]) {
+    assert.match(nix.instructions, new RegExp(marker), `the orchestrator prompt must define ${marker}`);
+  }
+  // Any installed skill is reachable through a delegated specialist, not just the two named domains.
+  const runner = findSpecialistAgent("skill-runner");
+  assert.ok(runner, "a skill runner must exist so every skill can be delegated");
+  assert.deepEqual(runner.supportedAgents, ["opencode", "codex"]);
+  assert.equal(runner.mode, undefined, "the skill runner is a delegated role");
+  for (const marker of ["skill id", "Load the named skill", "edit surfaces", "Never widen scope", "not a pass"]) {
+    assert.match(runner.instructions, new RegExp(marker), `the skill runner must define ${marker}`);
+  }
+  // Every other catalog entry stays a delegated subagent role.
+  for (const entry of specialistAgentCatalog.filter((item) => item.id !== "nix")) {
+    assert.equal(entry.mode, undefined, `${entry.id} must keep the default subagent mode`);
+  }
 });
 
 test("Python FastAPI skill is distinct from Araxys integration and uses the project contract", async () => {

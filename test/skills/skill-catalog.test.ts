@@ -64,3 +64,11 @@ test("skill catalog encodes agent compatibility and dependencies", () => {
   assert.ok(findSkillEntry("design-taste-frontend")?.dependencies.some((item) => item.name === "chrome"));
   assert.equal(findSkillEntry("emil-design-eng")?.dependencies.length, 0);
 });
+
+test("external skills treat runtime tools as advisory so one-step installation never blocks", () => {
+  for (const entry of skillCatalog.filter((item) => item.source.kind === "git")) {
+    for (const dependency of entry.dependencies) {
+      assert.equal(dependency.required, false, `${entry.id} must treat ${dependency.name} as a runtime tool, not an install blocker`);
+    }
+  }
+});

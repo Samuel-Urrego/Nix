@@ -232,6 +232,46 @@ test("reinstalling after a workflow changes state reconciles managed command fil
   }
 });
 
+test("a stale Codex command wrapper at the skill path is migrated, not preserved", async () => {
+  const { root, restoreHome } = await fixture();
+  try {
+    // Simulates an install from an older build that wrote /araxys into the skill dir.
+    const legacy = path.join(root, ".agents", "skills", "araxys-integration");
+    await mkdir(legacy, { recursive: true });
+    await writeFile(
+      path.join(legacy, "SKILL.md"),
+      "---\nname: araxys-integration\n---\n<!-- nix-ai:workflow-command id=araxys -->\n# /araxys\n",
+      "utf8"
+    );
+
+    const installed = await installAgentCommands(root, state(), "codex");
+    assert.ok(installed.removed.includes(".agents/skills/araxys-integration"));
+    await assert.rejects(readFile(path.join(legacy, "SKILL.md"), "utf8"), { code: "ENOENT" });
+    assert.match(
+      await readFile(path.join(root, ".agents", "skills", "nix-command-araxys", "SKILL.md"), "utf8"),
+      /<!-- nix-ai:workflow-command id=araxys -->/
+    );
+  } finally {
+    restoreHome();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("an unmanaged directory at the skill path is never deleted", async () => {
+  const { root, restoreHome } = await fixture();
+  try {
+    const target = path.join(root, ".agents", "skills", "araxys-integration");
+    await mkdir(target, { recursive: true });
+    await writeFile(path.join(target, "SKILL.md"), "---\nname: araxys-integration\n---\n# User owned\n", "utf8");
+
+    await installAgentCommands(root, state(), "codex");
+    assert.equal(await readFile(path.join(target, "SKILL.md"), "utf8"), "---\nname: araxys-integration\n---\n# User owned\n");
+  } finally {
+    restoreHome();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("Codex command installation writes and removes user skills", async () => {
   const { root, restoreHome } = await fixture();
   try {
@@ -240,14 +280,16 @@ test("Codex command installation writes and removes user skills", async () => {
       ".agents/skills/new-feat/SKILL.md",
       ".agents/skills/new-idea/SKILL.md",
       ".agents/skills/new-project/SKILL.md",
-      ".agents/skills/araxys-integration/SKILL.md",
-      ".agents/skills/security-audit/SKILL.md"
+      ".agents/skills/nix-command-araxys/SKILL.md",
+      ".agents/skills/nix-command-security-audit/SKILL.md"
     ]);
     assert.equal(installed.skipped.some((item) => item.path.endsWith("refactor/SKILL.md")), true);
 
     const content = await readFile(path.join(root, ".agents", "skills", "new-feat", "SKILL.md"), "utf8");
     assert.match(content, /^---\nname: new-feat\ndescription: /);
     assert.match(content, /<!-- nix-ai:workflow-command id=new-feat -->/);
+    const wrapper = await readFile(path.join(root, ".agents", "skills", "nix-command-araxys", "SKILL.md"), "utf8");
+    assert.match(wrapper, /^---\nname: araxys\ndescription: /);
 
     const removed = await removeAgentCommands(root, "codex");
     assert.ok(removed.removed.includes(".agents/skills/new-feat/SKILL.md"));

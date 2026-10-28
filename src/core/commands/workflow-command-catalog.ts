@@ -85,7 +85,10 @@ export const workflowCommandCatalog: ReadonlyArray<WorkflowCommandDefinition> = 
     description: "Integrate the installed Araxys security library into this consuming application.",
     kind: "skill",
     skillId: "araxys-integration",
-    codexSkillId: "araxys-integration",
+    // Codex exposes commands as skills, so the wrapper needs its own directory.
+    // Sharing the skill id would make the wrapper and the installed skill fight
+    // for `.agents/skills/araxys-integration` and block one of them.
+    codexSkillId: "nix-command-araxys",
     requiredComponents: [],
     slashAgents: ["opencode", "codex"],
     cliAgents: ["opencode", "codex"],
@@ -98,6 +101,8 @@ export const workflowCommandCatalog: ReadonlyArray<WorkflowCommandDefinition> = 
     description: "Run the installed Cloudflare Security Audit skill against this project with explicit scope and coverage-first findings.",
     kind: "skill",
     skillId: "security-audit",
+    // Same rule as /araxys: the Codex wrapper never owns the skill directory.
+    codexSkillId: "nix-command-security-audit",
     requiredComponents: [],
     slashAgents: ["opencode", "codex"],
     cliAgents: ["opencode", "codex"],

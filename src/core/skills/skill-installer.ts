@@ -171,6 +171,99 @@ export async function installSkill(
   return { action: plan.action === "update" ? "updated" : "installed", targetPath, fileCount: fetched.size };
 }
 
+export interface SkillAdoptionPlan {
+  readonly id: string;
+  readonly agent: SkillAgent;
+  readonly targetPath: string;
+  /** Files Nix would add to a directory whose existing content already matches. */
+  readonly additions: ReadonlyArray<string>;
+  /** Files present in both places with different content. */
+  readonly differences: ReadonlyArray<string>;
+  /** Files the target holds that Nix would not install. */
+  readonly unexpected: ReadonlyArray<string>;
+  readonly action: "adopt" | "already-managed" | "nothing-to-adopt" | "conflict" | "incompatible";
+  readonly reason?: string;
+}
+
+function sortedPaths(values: Iterable<string>): ReadonlyArray<string> {
+  return [...values].sort((left, right) => left.localeCompare(right));
+}
+
+/**
+ * Plans taking ownership of a directory Nix did not create. Adoption is only
+ * allowed when the existing content already equals what Nix would install, so
+ * claiming it can never rewrite or discard something the user wrote.
+ */
+export async function previewSkillAdoption(
+  root: string,
+  id: string,
+  agent: SkillAgent,
+  options: SkillInstallerOptions = {}
+): Promise<SkillAdoptionPlan> {
+  const entry = requireEntry(options, id);
+  const targetPath = targetPathFor(entry, agent);
+  const empty = { additions: [], differences: [], unexpected: [] } as const;
+  const base = { id, agent, targetPath } as const;
+  if (!entry.compatibleAgents.includes(agent)) {
+    return { ...base, ...empty, action: "incompatible", reason: `${entry.name} is not compatible with ${agent}.` };
+  }
+
+  let snapshot: TargetSnapshot | undefined;
+  try {
+    snapshot = await readTargetSnapshot(targetPath);
+  } catch (error) {
+    return { ...base, ...empty, action: "conflict", reason: message(error) };
+  }
+  if (!snapshot) {
+    return { ...base, ...empty, action: "nothing-to-adopt", reason: "Nothing exists at the target path; install the skill instead." };
+  }
+  const state = await readManagedState(root);
+  if (state.entries[managedSkillKey(agent, id)]) {
+    return { ...base, ...empty, action: "already-managed", reason: "This skill is already managed by Nix." };
+  }
+
+  const fetched = validateFiles(await fetcherFor(options)(entry));
+  const additions: string[] = [];
+  const differences: string[] = [];
+  for (const [relative, content] of fetched) {
+    const existing = snapshot.files.get(relative);
+    if (!existing) additions.push(relative);
+    else if (!existing.equals(content)) differences.push(relative);
+  }
+  const unexpected = [...snapshot.files.keys()].filter((relative) => !fetched.has(relative));
+  const plan = { ...base, additions: sortedPaths(additions), differences: sortedPaths(differences), unexpected: sortedPaths(unexpected) };
+  if (plan.differences.length > 0) {
+    return { ...plan, action: "conflict", reason: `The existing files differ from what Nix would install: ${plan.differences.join(", ")}.` };
+  }
+  if (plan.unexpected.length > 0) {
+    return { ...plan, action: "conflict", reason: `The existing directory holds files Nix would not install: ${plan.unexpected.join(", ")}.` };
+  }
+  return { ...plan, action: "adopt" };
+}
+
+export async function adoptSkill(
+  root: string,
+  id: string,
+  agent: SkillAgent,
+  options: SkillInstallerOptions = {}
+): Promise<{ readonly action: "adopted"; readonly targetPath: string; readonly addedFiles: ReadonlyArray<string> }> {
+  const plan = await previewSkillAdoption(root, id, agent, options);
+  if (plan.action === "conflict" || plan.action === "incompatible") throw new Error(plan.reason ?? `Cannot adopt skill ${id}.`);
+  if (plan.action !== "adopt") throw new Error(plan.reason ?? `Nothing to adopt for ${id}.`);
+
+  const entry = requireEntry(options, id);
+  const fetched = validateFiles(await fetcherFor(options)(entry));
+  for (const relative of plan.additions) {
+    const content = fetched.get(relative);
+    if (!content) throw new Error(`Adoption lost file ${relative} between preview and apply.`);
+    const target = resolveWithin(plan.targetPath, relative);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, content);
+  }
+  await recordInstall(root, entry, agent, fetched, options);
+  return { action: "adopted", targetPath: plan.targetPath, addedFiles: plan.additions };
+}
+
 export async function updateSkill(
   root: string,
   id: string,

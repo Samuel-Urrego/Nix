@@ -41,8 +41,15 @@ test("the command catalog declares the supported commands and their mappings", (
   assert.equal(getCommandAvailability(state(), "araxys").command.skillId, "araxys-integration");
   assert.equal(isWorkflowCommandId("araxys"), true);
   assert.equal(getCommandAvailability(state(), "security-audit").command.skillId, "security-audit");
-  assert.equal(getCommandAvailability(state(), "security-audit").command.codexSkillId, undefined);
   assert.equal(isWorkflowCommandId("security-audit"), true);
+  for (const id of ["araxys", "security-audit"] as const) {
+    const command = getCommandAvailability(state(), id).command;
+    assert.notEqual(
+      command.codexSkillId,
+      command.skillId,
+      `${id} must not write its Codex wrapper into the skill directory`
+    );
+  }
   assert.equal(isWorkflowCommandId("unknown"), false);
 });
 
