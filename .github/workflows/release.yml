@@ -6,10 +6,12 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
+  publish:
+    # The verified platform for v1 is Windows; the published package itself is
+    # platform-neutral TypeScript, but the suite is only proven here.
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,15 +20,10 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+          registry-url: "https://registry.npmjs.org"
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Build
-        run: npm run build
-
-      - name: Test
-        run: npm test
 
       - name: Verify the tag matches the package version
         shell: pwsh
@@ -36,22 +33,9 @@ jobs:
             throw "Tag ${{ github.ref_name }} does not match package version v$version. Update package.json before tagging."
           }
 
-      - name: Pack the release artifact
-        run: npm pack
-
-      - name: Publish the release asset
-        shell: pwsh
+      # npm publish runs prepublishOnly (typecheck + full test suite) and then
+      # prepack (build), so a failing suite blocks the release here.
+      - name: Publish to npm
+        run: npm publish
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $tag = "${{ github.ref_name }}"
-          $tarball = Get-ChildItem -Filter "nix-ai-stack-*.tgz" | Select-Object -First 1
-          if ($null -eq $tarball) {
-            throw "npm pack did not produce an artifact."
-          }
-          gh release view $tag *> $null
-          if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag $tarball.FullName --clobber
-          } else {
-            gh release create $tag $tarball.FullName --title $tag --notes "Automated release for $tag. The attached tarball is prebuilt, so the installer can install it with --ignore-scripts."
-          }
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

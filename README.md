@@ -77,19 +77,24 @@ src/
 
 ## Current status
 
-Nix is an early CLI prototype and a user-scope AI stack. It currently provides an installer TUI, global installation and lifecycle management for the Apache-2.0 Nix Core Codex skill, opt-in global destructive-operation safeguards for Codex and OpenCode, independently configurable SDD and TDD workflows with resumable project-keyed records under the Nix home, a workflow command catalog (`/new-feat`, `/refactor`, `/new-idea`) with global OpenCode commands and Codex user skills, optional global MCP integrations (Playwright, CodeGraph, Engram, and REA), a pinned stack-aware skill catalog with seven external skills, an isolated blind-judge idea-evaluation engine, configuration initialization, a doctor report, reviewer listing and heuristic reviewer reports, architecture recommendations, and a checksum-verified release manifest with an end-to-end lifecycle test suite. The public `stack:scan` command has been removed; repository-scanning heuristics remain an internal dependency of the prototype reviewer command and are not a supported standalone feature.
+Nix is an early CLI prototype and a user-scope AI stack. It currently provides a configuration TUI, global installation and lifecycle management for the Apache-2.0 Nix Core Codex skill, opt-in global destructive-operation safeguards for Codex and OpenCode, independently configurable SDD and TDD workflows with resumable project-keyed records under the Nix home, a workflow command catalog (`/new-feat`, `/refactor`, `/new-idea`) with global OpenCode commands and Codex user skills, optional global MCP integrations (Playwright, CodeGraph, Engram, and REA), a pinned stack-aware skill catalog with seven external skills, an isolated blind-judge idea-evaluation engine, configuration initialization, a doctor report, reviewer listing and heuristic reviewer reports, architecture recommendations, and a checksum-verified release manifest with an end-to-end lifecycle test suite. The public `stack:scan` command has been removed; repository-scanning heuristics remain an internal dependency of the prototype reviewer command and are not a supported standalone feature.
 
 Nix owns its state under a single global home: `NIX_AI_HOME` when set, otherwise `%APPDATA%\\Nix AI Stack` on Windows or `$XDG_CONFIG_HOME/nix-ai` (falling back to `~/.config/nix-ai`) elsewhere. Stack state, configuration, managed records, backups, project workflow records, and idea records live there. Agent surfaces are also global: OpenCode uses `~/.config/opencode`, and Codex uses `$CODEX_HOME` or `~/.codex`, with user skills at `~/.agents/skills`. Nix preserves existing configuration and refuses to overwrite unmanaged targets. Codex custom slash prompts are deprecated upstream and are not used; Codex receives workflow skills instead. Additional agent adapters and AI-backed review workflows are not implemented yet. Security hooks are global, opt-in advisory safeguards for Windows shells; they are not a sandbox. External skills are installed from pinned upstream commits and are not vendored in this repository. The blind-judge engine enforces context isolation but is not a process sandbox; it is available through `/new-idea` and `workflow:command`. Release checksums detect corruption and drift but are not a signature; digital signing is not implemented. See [the installation guide](docs/installation.md), [the release and compatibility guide](docs/release.md), [the support matrix](docs/support-matrix.md), [the component catalog](agents/component-catalog.md), [the security hook model](agents/security-hooks.md), [the workflow model](agents/workflows.md), [the workflow command catalog](agents/command-catalog.md), [the skill catalog](agents/skill-catalog.md), and [the blind-judge protocol](agents/blind-judge.md) for supported behavior and limits.
 
 ## Getting started
 
-Nix's Windows installer installs the CLI and opens the configuration TUI. Review the installer source and prerequisites in [the installation guide](docs/installation.md). Node.js 20.11+, npm, and Git are required; OpenCode and Codex are the supported targets.
+```powershell
+npm install --global nix-ai-stack
+nix-ai
+```
+
+`nix-ai` without arguments opens the configuration TUI. Node.js 20.11+ and npm are required; OpenCode and Codex are the supported targets. See [the installation guide](docs/installation.md) for prerequisites, `nix-ai upgrade`, and cleanup.
 
 ### Quick path
 
-1. Install Node.js 20.11+, npm, and Git.
-2. Download and launch the PowerShell installer from the trusted Nix repository (see [the installation guide](docs/installation.md)).
-3. Choose Codex and/or OpenCode in the TUI, then preview and install the specialists, skills, and commands you want.
+1. Install Node.js 20.11+ (npm ships with it).
+2. Run `npm install --global nix-ai-stack`.
+3. Run `nix-ai` and choose Codex and/or OpenCode in the TUI, then preview and install the specialists, skills, and commands you want.
 4. Configure optional MCPs and SDD/TDD from the TUI; security hooks remain separately opt-in.
 5. Verify the installation with `nix-ai doctor`.
 

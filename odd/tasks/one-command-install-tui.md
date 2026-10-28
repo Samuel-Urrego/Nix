@@ -51,6 +51,22 @@ Acceptance:
 
 Checks: Structural doc readback and links.
 
+### S5 — npm distribution (supersedes the installer mechanics in S1 and S4)
+
+User request: «Lo veo muy complicado no me esta gustando el flujo de como se instala, puedes revisar como hace gentle-ai … para instalar su AI-STACK» and «Perfecto hagamoslo con npm pero create una rama para eso por favor :D».
+
+Acceptance:
+- A user installs with exactly two commands: `npm install --global nix-ai-stack` and `nix-ai`.
+- `package.json` is publishable: not private, `publishConfig.access = public`, `license`, repository metadata, and `dist/` shipped through `prepack`.
+- Installing the published package runs no lifecycle script on the user's machine; `prepare` is not declared.
+- `nix-ai upgrade` installs the latest published version, prints the exact command it runs, and never resolves a branch, local checkout, or unreleased tag.
+- The custom PowerShell installer and its tests are removed; one installation path is documented.
+- A `v*` tag publishes to npm through the release workflow and refuses a tag that does not match the package version.
+
+Risk: item 5 — the release workflow publishes the distribution channel, and item 3 — the package name, binary name, and documented install commands are a contract others consume.
+
+Checks: `npm run typecheck`, `npm test`, `npm pack --dry-run`, and an isolated `npm install --global --prefix` run of the packed tarball.
+
 ## Tasks
 
 | ID | Specs | Route | Status | Commit |
@@ -58,7 +74,8 @@ Checks: Structural doc readback and links.
 | T1 | S1 | Inline | Partial — stable failure codes and docs added; parent checks pass, independent scratch verification unavailable | `6064bc1` |
 | T2 | S2 | Inline | Done — TUI agent, MCP, and command managers reuse existing safe installers; install-decline test confirms no target writes | `6064bc1`, `9206bd4` |
 | T3 | S3 | Inline | Done — one-command install and TUI path documented; local guide links and acceptance section checked | `6064bc1` |
-| T4 | S1, S4 | Inline | Done — tag-resolved release artifact install with `--ignore-scripts`; happy path and `NIX-INST-016` verified against the published `v0.1.0` release | pending commit |
+| T4 | S1, S4 | Inline | Superseded by T5 — the tag/asset installer was removed in favour of npm distribution | pending commit |
+| T5 | S5 | Inline | Done — package published as `nix-ai-stack`, installer removed, `nix-ai upgrade` added; isolated pack/install verified | pending commit |
 
 ## Log
 
@@ -83,3 +100,8 @@ Checks: Structural doc readback and links.
 - L18 — Verification: `npm run typecheck` clean; `npm test` 135 passed, 0 failed. Isolated end-to-end run against the published release with a redirected `LOCALAPPDATA` resolved `v0.1.0`, installed in 3s, reported `Installed Nix 0.1.0`, honored a declined PATH change, and exited 0; the installed CLI answered `--version` and `doctor`, with no dev dependencies present. A temporary `v99.9.9` tag without an asset produced `NIX-INST-016` and exit 1, then the tag was deleted. The interactive TUI launch was not exercised because it requires a real terminal.
 - L19 — User request: “shi y mergea tambien la pr porfa” — set up automated release publication. Added `.github/workflows/release.yml`: on a `v*` tag push it installs, builds, runs the suite, refuses a tag that does not match the package version, packs, and creates or updates the GitHub release with the tarball attached. Documented the workflow in `docs/release.md` and kept the manual `gh release create` as a fallback.
 - L20 — PR #3 merged as `94ca71a`. A throwaway `v9.9.9` tag proved the workflow triggers and its guard works, but the `Test` step failed with 2 of 135 tests: the skill-catalog assertions expect `---\n` and the GitHub runner checks out CRLF because the repository had no `.gitattributes` while `core.autocrlf` is true on Windows. Added `.gitattributes` with `* text=auto eol=lf` plus binary markers so the working tree is LF on every platform.
+
+- L21 � User request: �Perfecto hagamoslo con npm pero create una rama para eso por favor :D�. Compared against gentle-ai, cloned at `P:\Proyectos\gentle-ai`: it ships one compiled Go binary, installs with `go install �@v4.1.1`, adds the install dir to PATH without prompting, and exposes `gentle-ai upgrade` plus non-interactive `gentle-ai install --preset`. Nix had three moving parts (script ? tarball ? npm global). Decision: publish to the public npm registry and delete the installer machinery, because a published package already ships `dist/`.
+- L22 � Implementation on branch `feat/npm-distribution`: `package.json` lost `private`, gained `license: MIT`, repository/homepage/bugs, keywords, `publishConfig.access: public`, `prepack: npm run build`, and `prepublishOnly: npm run typecheck && npm test`. `prepare` was removed so no consumer install can trigger a build: an isolated tarball install proved npm 11.19 printed an `install-scripts` warning for `prepare` even though the registry install never runs it, and `prepack` removes that friction. Added `projectMetadata.packageName` and `src/core/system/npm-upgrade.ts`; added the `nix-ai upgrade` command and its help entry. Deleted `scripts/install.ps1` and `test/cli/installer.test.ts`; added `test/cli/packaging.test.ts`. `.github/workflows/release.yml` now publishes to npm on a `v*` tag after the version guard, using the `NPM_TOKEN` secret. Rewrote `docs/installation.md`, the packaging/publishing sections of `docs/release.md`, and the README getting-started block.
+- L23 � Verification: `npm run typecheck` clean; `npm test` 135 passed, 0 failed (4 installer contract tests replaced by 4 packaging tests). `npm pack` produced `nix-ai-stack-0.1.0.tgz` (1,805,440 bytes, 209 files, `dist/cli/index.js` present); installing it with `npm install --global --prefix <temp>` created the `nix-ai` shim in 3s and `nix-ai --version` printed `0.1.0` with no lifecycle-script warning. `nix-ai upgrade` printed `npm install --global nix-ai-stack@latest`, ran npm, surfaced the registry 404 (the package is not published yet), and exited 1 with `Upgrade failed with exit code 1.` The interactive TUI was not exercised by the parent because it needs a real terminal.
+- L24 � Blocker left for the user: publishing needs npm credentials. `npm whoami` returns `ENEEDAUTH` on this machine, and the workflow needs an `NPM_TOKEN` automation token with publish rights on `nix-ai-stack`. Both `nix-ai-stack` and `nix-ai` were free on the registry at check time; `nix-ai-stack` was kept because it is descriptive and the binary is still `nix-ai`.
