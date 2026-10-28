@@ -1,4 +1,4 @@
-import { emitKeypressEvents } from "node:readline";
+import { StringDecoder } from "node:string_decoder";
 
 type KeyboardInput = NodeJS.ReadStream;
 
@@ -56,35 +56,95 @@ function columnsOf(output: NodeJS.WritableStream): number {
   return (output as NodeJS.WriteStream).columns ?? 80;
 }
 
+/** A key the selectors understand, already free of escape-sequence ambiguity. */
+export type DecodedKey =
+  | { readonly kind: "up" | "down" | "enter" | "escape" | "space" | "backspace" | "interrupt" }
+  | { readonly kind: "text"; readonly value: string };
+
 /**
- * Node's keypress decoder buffers a lone ESC while it waits to see whether an
- * escape sequence follows, and only flushes it after ~500ms. That reads as a
- * frozen TUI, so flush it ourselves once no follow-up byte arrives in time.
+ * How long a lone ESC waits for the rest of an escape sequence before it counts
+ * as the Escape key. Node's own decoder keeps a pending ESC inside a per-stream
+ * generator, so a later selector inherits it and arrow keys stop working; this
+ * reader owns the buffer for the lifetime of one selector and drops it on close.
  */
 const ESCAPE_FLUSH_MS = 50;
 
-function watchLoneEscape(input: NodeJS.ReadStream, onEscape: () => void): () => void {
+/**
+ * Turns raw terminal bytes into keys. Raw mode delivers arrows as `ESC [ A`,
+ * so the parser has to hold the ESC until it knows whether a sequence follows.
+ */
+export function createKeyReader(input: NodeJS.ReadStream, onKey: (key: DecodedKey) => void): () => void {
+  const decoder = new StringDecoder("utf8");
+  let pending = "";
   let timer: NodeJS.Timeout | undefined;
-  const cancel = (): void => {
+  let closed = false;
+
+  const stopTimer = (): void => {
     if (!timer) return;
     clearTimeout(timer);
     timer = undefined;
   };
-  const onData = (chunk: Buffer | string): void => {
-    const text = typeof chunk === "string" ? chunk : chunk.toString("latin1");
-    if (text !== "\u001b") {
-      cancel();
-      return;
-    }
-    cancel();
+
+  const scheduleEscapeFlush = (): void => {
+    stopTimer();
     timer = setTimeout(() => {
       timer = undefined;
-      onEscape();
+      if (closed) return;
+      pending = "";
+      onKey({ kind: "escape" });
     }, ESCAPE_FLUSH_MS);
   };
+
+  const drain = (): void => {
+    for (;;) {
+      if (closed || pending.length === 0) return;
+      if (pending.startsWith("\u001b")) {
+        if (pending.length === 1) {
+          scheduleEscapeFlush();
+          return;
+        }
+        const second = pending[1];
+        if (second === undefined || (second !== "[" && second !== "O")) {
+          pending = pending.slice(1);
+          stopTimer();
+          onKey({ kind: "escape" });
+          continue;
+        }
+        if (pending.length < 3) {
+          scheduleEscapeFlush();
+          return;
+        }
+        const code = pending[2];
+        pending = pending.slice(3);
+        stopTimer();
+        if (code === "A") onKey({ kind: "up" });
+        else if (code === "B") onKey({ kind: "down" });
+        // Other sequences (left, right, home, delete) carry no meaning here.
+        continue;
+      }
+      const char = pending[0] ?? "";
+      pending = pending.slice(1);
+      stopTimer();
+      if (char === "\r" || char === "\n") onKey({ kind: "enter" });
+      else if (char === "\u007f" || char === "\b") onKey({ kind: "backspace" });
+      else if (char === "\u0003") onKey({ kind: "interrupt" });
+      else if (char === " ") onKey({ kind: "space" });
+      else if (char >= " ") onKey({ kind: "text", value: char });
+      // Other control bytes are ignored on purpose.
+    }
+  };
+
+  const onData = (chunk: Buffer | string): void => {
+    pending += typeof chunk === "string" ? chunk : decoder.write(chunk);
+    stopTimer();
+    drain();
+  };
+
   input.on("data", onData);
   return () => {
-    cancel();
+    closed = true;
+    stopTimer();
+    pending = "";
     input.removeListener("data", onData);
   };
 }
@@ -96,17 +156,15 @@ export async function selectWithKeyboard({ input, output, prompt, choices, title
     throw new Error("Keyboard selection requires an interactive terminal.");
   }
 
-  emitKeypressEvents(input);
   const wasRaw = terminalInput.isRaw ?? false;
   const screen = new InPlaceScreen(output);
   let selected = initialIndex >= 0 && initialIndex < choices.length ? initialIndex : 0;
   let settled = false;
 
   return new Promise<number>((resolve, reject) => {
-    let unwatch: () => void = () => {};
+    let closeReader: () => void = () => {};
     const cleanup = (): void => {
-      unwatch();
-      input.removeListener("keypress", onKeypress);
+      closeReader();
       input.removeListener("close", onClose);
       input.removeListener("error", onError);
       terminalInput.setRawMode(wasRaw);
@@ -128,28 +186,27 @@ export async function selectWithKeyboard({ input, output, prompt, choices, title
       const body = [prompt, "", ...choices.map((choice, index) => `${index === selected ? "›" : " "} ${choice}`), "", "↑↓ Navigate · Enter Select · Esc Back"];
       screen.draw([...(banner ?? []), ...(banner && banner.length > 0 ? [""] : []), ...buildFrame(title, body, columnsOf(output))]);
     };
-    const onKeypress = (value: string, key?: { readonly name?: string; readonly ctrl?: boolean }): void => {
-      if (key?.ctrl && key.name === "c") {
+    const onKey = (key: DecodedKey): void => {
+      if (key.kind === "interrupt" || key.kind === "escape") {
         finish(-1);
-      } else if (key?.name === "up") {
+      } else if (key.kind === "up") {
         selected = (selected + choices.length - 1) % choices.length;
         render();
-      } else if (key?.name === "down") {
+      } else if (key.kind === "down") {
         selected = (selected + 1) % choices.length;
         render();
-      } else if (key?.name === "return" || key?.name === "enter") {
+      } else if (key.kind === "enter") {
         finish(selected);
-      } else if (key?.name === "escape" || value.toLowerCase() === "q") {
+      } else if (key.kind === "text" && key.value.toLowerCase() === "q") {
         finish(-1);
       }
     };
     const onClose = (): void => finish(-1);
     const onError = (error: Error): void => fail(error);
 
-    input.on("keypress", onKeypress);
     input.once("close", onClose);
     input.once("error", onError);
-    unwatch = watchLoneEscape(input, () => finish(-1));
+    closeReader = createKeyReader(input, onKey);
     terminalInput.setRawMode(true);
     input.resume();
     output.write("\u001b[?25l");
@@ -171,7 +228,6 @@ export async function multiSelectWithKeyboard({
     throw new Error("Keyboard selection requires an interactive terminal.");
   }
 
-  emitKeypressEvents(input);
   const wasRaw = terminalInput.isRaw ?? false;
   const screen = new InPlaceScreen(output);
   const checked = new Set<number>(initialSelected.filter((index) => index >= 0 && index < choices.length));
@@ -181,7 +237,7 @@ export async function multiSelectWithKeyboard({
 
   return new Promise<readonly number[] | undefined>((resolve, reject) => {
     // undefined means cancelled: an empty selection is a real answer, going back is not.
-    let unwatch: () => void = () => {};
+    let closeReader: () => void = () => {};
     const visible = (): ReadonlyArray<number> =>
       choices
         .map((label, index) => ({ label, index }))
@@ -190,8 +246,7 @@ export async function multiSelectWithKeyboard({
     const nextRow = (): number => visible().length;
 
     const cleanup = (): void => {
-      unwatch();
-      input.removeListener("keypress", onKeypress);
+      closeReader();
       input.removeListener("close", onClose);
       input.removeListener("error", onError);
       terminalInput.setRawMode(wasRaw);
@@ -237,38 +292,34 @@ export async function multiSelectWithKeyboard({
       ];
       screen.draw(buildFrame(title, body, columnsOf(output)));
     };
-    const onKeypress = (value: string, key?: { readonly name?: string; readonly ctrl?: boolean; readonly meta?: boolean }): void => {
-      if (key?.ctrl && key.name === "c") {
+    const onKey = (key: DecodedKey): void => {
+      if (key.kind === "interrupt" || key.kind === "escape") {
         finish(undefined);
         return;
       }
-      if (key?.name === "up") {
+      if (key.kind === "up") {
         const limit = nextRow();
         cursor = cursor <= 0 ? limit : cursor - 1;
         render();
         return;
       }
-      if (key?.name === "down") {
+      if (key.kind === "down") {
         const limit = nextRow();
         cursor = cursor >= limit ? 0 : cursor + 1;
         render();
         return;
       }
-      if (key?.name === "return" || key?.name === "enter") {
+      if (key.kind === "enter") {
         finish([...checked].sort((left, right) => left - right));
         return;
       }
-      if (key?.name === "escape") {
-        finish(undefined);
-        return;
-      }
-      if (key?.name === "backspace" || key?.name === "delete") {
+      if (key.kind === "backspace") {
         filter = filter.slice(0, -1);
         clampCursor();
         render();
         return;
       }
-      if (key?.name === "space" || value === " ") {
+      if (key.kind === "space") {
         const rows = visible();
         const target = rows[cursor];
         if (target !== undefined) {
@@ -278,7 +329,7 @@ export async function multiSelectWithKeyboard({
         render();
         return;
       }
-      if (!key?.ctrl && !key?.meta && value === "a") {
+      if (key.kind === "text" && key.value === "a") {
         const rows = visible();
         const allChecked = rows.length > 0 && rows.every((index) => checked.has(index));
         for (const index of rows) {
@@ -288,8 +339,8 @@ export async function multiSelectWithKeyboard({
         render();
         return;
       }
-      if (!key?.ctrl && !key?.meta && value.length === 1 && value >= " ") {
-        filter += value;
+      if (key.kind === "text" && key.value >= " ") {
+        filter += key.value;
         clampCursor();
         render();
       }
@@ -297,10 +348,9 @@ export async function multiSelectWithKeyboard({
     const onClose = (): void => finish(undefined);
     const onError = (error: Error): void => fail(error);
 
-    input.on("keypress", onKeypress);
     input.once("close", onClose);
     input.once("error", onError);
-    unwatch = watchLoneEscape(input, () => finish(undefined));
+    closeReader = createKeyReader(input, onKey);
     terminalInput.setRawMode(true);
     input.resume();
     output.write("\u001b[?25l");

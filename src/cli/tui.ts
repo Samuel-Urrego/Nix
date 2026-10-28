@@ -17,7 +17,7 @@ import { getSpecialistAgentStatus, installSpecialistAgent, previewSpecialistAgen
 import type { SpecialistAgentPlan, SpecialistAgentTarget } from "../core/agents/agent-contracts.js";
 import { skillCatalog } from "../core/skills/skill-catalog.js";
 import { describeSkillSource } from "../core/skills/skill-contracts.js";
-import type { SkillAgent } from "../core/skills/skill-contracts.js";
+import type { SkillAgent, SkillCatalogEntry } from "../core/skills/skill-contracts.js";
 import { getSkillStatus, installSkill, previewSkill, removeSkill, type SkillInstallerOptions, type SkillPlan } from "../core/skills/skill-installer.js";
 import { createUpgradePlan, resolveLatestPublishedVersion, spawnUpgrade, type LatestVersionResolver, type UpgradeRunner } from "../core/system/npm-upgrade.js";
 import { projectMetadata } from "../core/system/project-metadata.js";
@@ -272,175 +272,118 @@ async function runGuidedInstall(
     return;
   }
 
-  terminal.clear();
-  const mode = await terminal.select(
-    "How do you want to install?",
-    ["Install everything (recommended)", "Choose targets and skills"],
-    "INSTALL MODE",
-    undefined,
-    0
-  );
-  if (mode < 0) {
-    await pause(terminal, output, "INSTALL CANCELLED", ["Nothing was changed."]);
+  const modeChoices = ["Install everything (recommended)", "Choose targets and skills"];
+  const targetChoices = available.map((detection) => `${detection.label} — signalled by ${detection.evidence[0]}`);
+  let cancelNote = "Nothing was changed.";
+
+  /**
+   * Selection is a step machine, not a straight line: Escape goes back one step
+   * with the previous answers intact, and only Escape on the first step cancels.
+   */
+  const choosePlan = async () => {
+    let step: "mode" | "targets" | "skills" | "preview" = "mode";
+    let modeIndex = 0;
+    let targets: readonly SkillAgent[] = [];
+    let skills: ReadonlyArray<SkillCatalogEntry> = [];
+    let targetAgents: readonly SkillAgent[] = available.map((detection) => detection.agent);
+    let skillIds: readonly string[] | undefined;
+
+    for (;;) {
+      if (step === "mode") {
+        terminal.clear();
+        const mode = await terminal.select("How do you want to install?", modeChoices, "INSTALL MODE", undefined, modeIndex);
+        if (mode < 0) return undefined;
+        modeIndex = mode;
+        if (mode === 0) {
+          targets = available.map((detection) => detection.agent);
+          skills = catalog.filter((entry) => targets.some((agent) => entry.compatibleAgents.includes(agent)));
+          step = "preview";
+        } else {
+          step = "targets";
+        }
+        continue;
+      }
+
+      if (step === "targets") {
+        terminal.clear();
+        const picks = await terminal.multiSelect(
+          "Where should Nix install? (all targets are global)",
+          targetChoices,
+          "INSTALL TARGETS",
+          targetAgents.map((agent) => available.findIndex((detection) => detection.agent === agent)).filter((index) => index >= 0)
+        );
+        if (picks === undefined) {
+          step = "mode";
+          continue;
+        }
+        const next = picks.map((index) => available[index]?.agent).filter((agent): agent is SkillAgent => agent !== undefined);
+        if (next.length === 0) {
+          await pause(
+            terminal,
+            output,
+            "NO TARGET SELECTED",
+            ["Pick at least one target: Nix installs only where it can detect an application.", "Nothing was changed."],
+            "Press Enter to choose targets again."
+          );
+          step = "targets";
+          continue;
+        }
+        targetAgents = next;
+        targets = next;
+        step = "skills";
+        continue;
+      }
+
+      if (step === "skills") {
+        const statuses = await getSkillStatus(root, skillOptions);
+        const entries = catalog.filter((entry) => targets.some((agent) => entry.compatibleAgents.includes(agent)));
+        const skillChoices = entries.map((entry) => {
+          const state = statuses
+            .filter((status) => status.id === entry.id && targets.includes(status.agent))
+            .map((status) => `${status.agent}: ${status.state}`)
+            .join(", ");
+          return `${entry.name} — ${entry.description} (compatible: ${entry.compatibleAgents.join(", ")}; ${state || "not installed"})`;
+        });
+        // Everything starts checked: the user only unchecks what they do not want.
+        terminal.clear();
+        const picks = await terminal.multiSelect(
+          "Which skills should Nix install? (space to toggle, search to filter, Next to continue)",
+          skillChoices,
+          "GLOBAL SKILLS",
+          entries.map((entry, index) => (skillIds === undefined || skillIds.includes(entry.id) ? index : -1)).filter((index) => index >= 0)
+        );
+        if (picks === undefined) {
+          step = "targets";
+          continue;
+        }
+        skills = picks.map((index) => entries[index]).filter((entry): entry is SkillCatalogEntry => entry !== undefined);
+        skillIds = skills.map((entry) => entry.id);
+        step = "preview";
+        continue;
+      }
+
+      const preview = await buildInstallPreview(root, statePath, targets, skills, skillOptions);
+      terminal.clear();
+      writeFrame(output, "INSTALL PREVIEW", preview.lines);
+      const confirmed = await terminal.select("Apply these global changes?", ["Yes, install", "No, cancel"], "CONFIRM", undefined, 1);
+      if (confirmed < 0) {
+        step = modeIndex === 0 ? "mode" : "skills";
+        continue;
+      }
+      if (confirmed !== 0) {
+        cancelNote = "No files changed.";
+        return undefined;
+      }
+      return { ...preview, targets };
+    }
+  };
+
+  const selection = await choosePlan();
+  if (!selection) {
+    await pause(terminal, output, "INSTALL CANCELLED", [cancelNote]);
     return;
   }
-  const installEverything = mode === 0;
-
-  let targets: readonly SkillAgent[];
-  if (installEverything) {
-    targets = available.map((detection) => detection.agent);
-  } else {
-    const targetChoices = available.map((detection) => `${detection.label} — signalled by ${detection.evidence[0]}`);
-    terminal.clear();
-    const targetPicks = await terminal.multiSelect(
-      "Where should Nix install? (all targets are global)",
-      targetChoices,
-      "INSTALL TARGETS",
-      available.map((_detection, index) => index)
-    );
-    if (targetPicks === undefined) {
-      await pause(terminal, output, "INSTALL CANCELLED", ["Back to the previous step. No files changed."]);
-      return;
-    }
-    targets = targetPicks.map((index) => available[index]?.agent).filter((agent): agent is SkillAgent => agent !== undefined);
-    if (targets.length === 0) {
-      await pause(terminal, output, "INSTALL CANCELLED", ["No target selected. No files changed."]);
-      return;
-    }
-  }
-
-  const statuses = await getSkillStatus(root, skillOptions);
-  const skillEntries = catalog.filter((entry) => targets.some((agent) => entry.compatibleAgents.includes(agent)));
-  let skills: ReadonlyArray<(typeof skillEntries)[number]>;
-  if (installEverything) {
-    skills = skillEntries;
-  } else {
-    const skillChoices = skillEntries.map((entry) => {
-      const state = statuses
-        .filter((status) => status.id === entry.id && targets.includes(status.agent))
-        .map((status) => `${status.agent}: ${status.state}`)
-        .join(", ");
-      return `${entry.name} — ${entry.description} (compatible: ${entry.compatibleAgents.join(", ")}; ${state || "not installed"})`;
-    });
-    // Everything starts checked: the user only unchecks what they do not want.
-    terminal.clear();
-    const skillPicks = await terminal.multiSelect(
-      "Which skills should Nix install? (space to toggle, search to filter, Next to continue)",
-      skillChoices,
-      "GLOBAL SKILLS",
-      skillEntries.map((_entry, index) => index)
-    );
-    if (skillPicks === undefined) {
-      await pause(terminal, output, "INSTALL CANCELLED", ["Back to the previous step. No files changed."]);
-      return;
-    }
-    skills = skillPicks.map((index) => skillEntries[index]).filter((entry) => entry !== undefined);
-  }
-
-  const state = await loadStackState(statePath);
-  const workflows = state.workflows.sdd || state.workflows.tdd ? state.workflows : { sdd: true, tdd: true };
-  const selectedComponents = [...new Set([
-    ...state.selectedComponents.filter((id) => !id.startsWith("agent.") && id !== "workflow.sdd" && id !== "workflow.tdd"),
-    ...targets.map((agent) => `agent.${agent}`),
-    ...(workflows.sdd ? ["workflow.sdd"] : []),
-    ...(workflows.tdd ? ["workflow.tdd"] : [])
-  ])];
-  const effectiveState = { ...state, selectedComponents, workflows, agentTargets: [...targets] };
-  const availabilities = resolveCommandAvailability(effectiveState);
-
-  const previewLines: string[] = [
-    `Targets: ${targets.join(", ")}`,
-    `Workflows: SDD ${workflows.sdd ? "enabled" : "disabled"} · TDD ${workflows.tdd ? "enabled" : "disabled"} (core Nix workflows)`,
-    ""
-  ];
-  for (const agent of targets) {
-    const installed: string[] = [];
-    const skipped: string[] = [];
-    for (const availability of availabilities) {
-      const command = availability.command;
-      const target = agent === "opencode"
-        ? path.join(getOpenCodeCommandsDirectory(), `${command.id}.md`)
-        : path.join(getGlobalSkillTargetPath("codex", command.codexSkillId ?? command.id), "SKILL.md");
-      if (availability.slashAvailable) installed.push(agent === "opencode" ? path.basename(target) : path.basename(path.dirname(target)));
-      else skipped.push(`${command.id}: ${availability.slashReason ?? "unavailable"}`);
-    }
-    const directory = agent === "opencode"
-      ? getOpenCodeCommandsDirectory()
-      : path.dirname(getGlobalSkillTargetPath("codex", "example"));
-    previewLines.push(`Commands [${agent}] → ${shortenPath(directory)}`);
-    if (installed.length > 0) previewLines.push(`  + ${installed.join(", ")}`);
-    for (const entry of skipped) previewLines.push(`  - ${entry}`);
-    previewLines.push("");
-  }
-
-  const skillPlans: Array<{ readonly plan: SkillPlan; readonly agent: SkillAgent; readonly name: string }> = [];
-  const runtimeNotes = new Set<string>();
-  for (const entry of skills) {
-    for (const agent of targets) {
-      if (!entry.compatibleAgents.includes(agent)) continue;
-      const plan = await previewSkill(root, entry.id, agent, skillOptions);
-      skillPlans.push({ plan, agent, name: entry.name });
-      const advisory = plan.dependencies.filter((dependency) => !dependency.required && !dependency.satisfied);
-      for (const item of advisory) runtimeNotes.add(item.description);
-    }
-  }
-  for (const agent of targets) {
-    const group = skillPlans.filter((item) => item.agent === agent);
-    if (group.length === 0) continue;
-    previewLines.push(`Skills [${agent}] → ${shortenPath(path.dirname(group[0]!.plan.targetPath))}`);
-    const byAction = new Map<string, string[]>();
-    for (const item of group) {
-      const names = byAction.get(item.plan.action) ?? [];
-      names.push(item.name);
-      byAction.set(item.plan.action, names);
-    }
-    for (const [action, names] of byAction) previewLines.push(`  ${action}: ${names.join(", ")}`);
-    for (const item of group) {
-      if (item.plan.reason) previewLines.push(`  ${item.name}: ${item.plan.reason}`);
-      if (item.plan.missing.length > 0) previewLines.push(`  ${item.name}: blocking dependencies — ${item.plan.missing.join("; ")}`);
-    }
-    previewLines.push("");
-  }
-
-  // Nix-owned specialist agents are part of the same one-step install: an orchestrator
-  // that cannot invoke its specialists is only half installed.
-  const agentPlans: Array<{ readonly plan: SpecialistAgentPlan; readonly agent: SpecialistAgentTarget; readonly name: string }> = [];
-  for (const agent of targets) {
-    for (const entry of specialistAgentCatalog) {
-      if (!entry.supportedAgents.includes(agent)) continue;
-      const plan = await previewSpecialistAgent(root, entry.id, agent, { catalog: specialistAgentCatalog });
-      agentPlans.push({ plan, agent, name: entry.name });
-    }
-  }
-  for (const agent of targets) {
-    const group = agentPlans.filter((item) => item.agent === agent);
-    if (group.length === 0) continue;
-    previewLines.push(`Agents [${agent}] → ${shortenPath(path.dirname(group[0]!.plan.targetPath))}`);
-    for (const item of group) {
-      previewLines.push(`  ${item.plan.action}: ${item.name}${item.plan.reason ? ` — ${item.plan.reason}` : ""}`);
-    }
-    previewLines.push("");
-  }
-  if (runtimeNotes.size > 0) {
-    previewLines.push("Runtime tools these skills use (install them only when you need the skill):");
-    for (const note of runtimeNotes) previewLines.push(`  · ${note}`);
-    previewLines.push("");
-  }
-  previewLines.push("Unmanaged files are always preserved.");
-  terminal.clear();
-  writeFrame(output, "INSTALL PREVIEW", previewLines);
-
-  const confirmed = await terminal.select(
-    "Apply these global changes?",
-    ["Yes, install", "No, cancel"],
-    "CONFIRM",
-    undefined,
-    1
-  );
-  if (confirmed !== 0) {
-    await pause(terminal, output, "INSTALL CANCELLED", ["No files changed."]);
-    return;
-  }
+  const { effectiveState, skillPlans, agentPlans, runtimeNotes, targets } = selection;
 
   terminal.clear();
   const progress = createProgress(output, "INSTALLING", targets.length + skillPlans.length + agentPlans.length);
@@ -1046,4 +989,105 @@ async function manageSecurityHooks(terminal: TuiTerminal, output: NodeJS.Writabl
       await terminal.question("");
     }
   }
+}
+
+/** Builds the confirm screen from the answers the step machine collected. */
+async function buildInstallPreview(
+  root: string,
+  statePath: string,
+  targets: readonly SkillAgent[],
+  skills: ReadonlyArray<SkillCatalogEntry>,
+  skillOptions: SkillInstallerOptions | undefined
+) {
+  const state = await loadStackState(statePath);
+  const workflows = state.workflows.sdd || state.workflows.tdd ? state.workflows : { sdd: true, tdd: true };
+  const selectedComponents = [...new Set([
+    ...state.selectedComponents.filter((id) => !id.startsWith("agent.") && id !== "workflow.sdd" && id !== "workflow.tdd"),
+    ...targets.map((agent) => `agent.${agent}`),
+    ...(workflows.sdd ? ["workflow.sdd"] : []),
+    ...(workflows.tdd ? ["workflow.tdd"] : [])
+  ])];
+  const effectiveState = { ...state, selectedComponents, workflows, agentTargets: [...targets] };
+  const availabilities = resolveCommandAvailability(effectiveState);
+
+  const previewLines: string[] = [
+    `Targets: ${targets.join(", ")}`,
+    `Workflows: SDD ${workflows.sdd ? "enabled" : "disabled"} · TDD ${workflows.tdd ? "enabled" : "disabled"} (core Nix workflows)`,
+    ""
+  ];
+  for (const agent of targets) {
+    const installed: string[] = [];
+    const skipped: string[] = [];
+    for (const availability of availabilities) {
+      const command = availability.command;
+      const target = agent === "opencode"
+        ? path.join(getOpenCodeCommandsDirectory(), `${command.id}.md`)
+        : path.join(getGlobalSkillTargetPath("codex", command.codexSkillId ?? command.id), "SKILL.md");
+      if (availability.slashAvailable) installed.push(agent === "opencode" ? path.basename(target) : path.basename(path.dirname(target)));
+      else skipped.push(`${command.id}: ${availability.slashReason ?? "unavailable"}`);
+    }
+    const directory = agent === "opencode"
+      ? getOpenCodeCommandsDirectory()
+      : path.dirname(getGlobalSkillTargetPath("codex", "example"));
+    previewLines.push(`Commands [${agent}] → ${shortenPath(directory)}`);
+    if (installed.length > 0) previewLines.push(`  + ${installed.join(", ")}`);
+    for (const entry of skipped) previewLines.push(`  - ${entry}`);
+    previewLines.push("");
+  }
+
+  const skillPlans: Array<{ readonly plan: SkillPlan; readonly agent: SkillAgent; readonly name: string }> = [];
+  const runtimeNotes = new Set<string>();
+  for (const entry of skills) {
+    for (const agent of targets) {
+      if (!entry.compatibleAgents.includes(agent)) continue;
+      const plan = await previewSkill(root, entry.id, agent, skillOptions);
+      skillPlans.push({ plan, agent, name: entry.name });
+      const advisory = plan.dependencies.filter((dependency) => !dependency.required && !dependency.satisfied);
+      for (const item of advisory) runtimeNotes.add(item.description);
+    }
+  }
+  for (const agent of targets) {
+    const group = skillPlans.filter((item) => item.agent === agent);
+    if (group.length === 0) continue;
+    previewLines.push(`Skills [${agent}] → ${shortenPath(path.dirname(group[0]!.plan.targetPath))}`);
+    const byAction = new Map<string, string[]>();
+    for (const item of group) {
+      const names = byAction.get(item.plan.action) ?? [];
+      names.push(item.name);
+      byAction.set(item.plan.action, names);
+    }
+    for (const [action, names] of byAction) previewLines.push(`  ${action}: ${names.join(", ")}`);
+    for (const item of group) {
+      if (item.plan.reason) previewLines.push(`  ${item.name}: ${item.plan.reason}`);
+      if (item.plan.missing.length > 0) previewLines.push(`  ${item.name}: blocking dependencies — ${item.plan.missing.join("; ")}`);
+    }
+    previewLines.push("");
+  }
+
+  // Nix-owned specialist agents are part of the same one-step install: an orchestrator
+  // that cannot invoke its specialists is only half installed.
+  const agentPlans: Array<{ readonly plan: SpecialistAgentPlan; readonly agent: SpecialistAgentTarget; readonly name: string }> = [];
+  for (const agent of targets) {
+    for (const entry of specialistAgentCatalog) {
+      if (!entry.supportedAgents.includes(agent)) continue;
+      const plan = await previewSpecialistAgent(root, entry.id, agent, { catalog: specialistAgentCatalog });
+      agentPlans.push({ plan, agent, name: entry.name });
+    }
+  }
+  for (const agent of targets) {
+    const group = agentPlans.filter((item) => item.agent === agent);
+    if (group.length === 0) continue;
+    previewLines.push(`Agents [${agent}] → ${shortenPath(path.dirname(group[0]!.plan.targetPath))}`);
+    for (const item of group) {
+      previewLines.push(`  ${item.plan.action}: ${item.name}${item.plan.reason ? ` — ${item.plan.reason}` : ""}`);
+    }
+    previewLines.push("");
+  }
+  if (runtimeNotes.size > 0) {
+    previewLines.push("Runtime tools these skills use (install them only when you need the skill):");
+    for (const note of runtimeNotes) previewLines.push(`  · ${note}`);
+    previewLines.push("");
+  }
+  previewLines.push("Unmanaged files are always preserved.");
+  return { lines: previewLines, effectiveState, skillPlans, agentPlans, runtimeNotes, targets };
 }

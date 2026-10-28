@@ -108,6 +108,41 @@ test("Escape in a multi-select cancels instead of confirming an empty selection"
   }
 });
 
+test("a selector created after a cancelled one still moves with arrow keys", async () => {
+  const input = fakeInput();
+  const output = new PassThrough() as PassThrough & { columns: number };
+  output.columns = 48;
+  output.resume();
+
+  try {
+    const first = selectWithKeyboard({
+      input: input as unknown as NodeJS.ReadStream,
+      output,
+      prompt: "First",
+      choices: ["Yes, install", "No, cancel"]
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    input.write("\u001b");
+    assert.equal(await withDeadline(first, "the first selector never answered Escape"), -1);
+
+    // The reported freeze: the home selector after an Escape ignored the arrows.
+    const second = selectWithKeyboard({
+      input: input as unknown as NodeJS.ReadStream,
+      output,
+      prompt: "Second",
+      choices: ["One", "Two", "Three"]
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    input.write("\u001b[");
+    input.write("B");
+    input.write("\r");
+    assert.equal(await withDeadline(second, "the selector after Escape ignored the arrow key"), 1);
+  } finally {
+    input.destroy();
+    output.destroy();
+  }
+});
+
 test("progress reporter fills a framed bar as steps complete", () => {
   const output = new PassThrough();
   let transcript = "";

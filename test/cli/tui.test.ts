@@ -397,12 +397,12 @@ test("install everything also installs the Nix specialist agents for each detect
   });
 });
 
-test("cancelling a guided install step with Escape writes nothing", async () => {
+test("cancelling at the first install step writes nothing", async () => {
   await withTuiSandbox(async ({ root, environment, restore }) => {
     try {
       await writeDetectedTargets(environment);
       const { output, transcript } = scriptedOutput();
-      const answers = ["1", "2"];
+      const answers = ["1", "escape", "", "4"];
       await runTui({
         output,
         ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; },
@@ -410,12 +410,67 @@ test("cancelling a guided install step with Escape writes nothing", async () => 
         skillOptions: bundledSkillsOnly
       });
 
-      assert.match(transcript(), /╭ INSTALL TARGETS/);
+      assert.match(transcript(), /╭ INSTALL MODE/);
       assert.match(transcript(), /INSTALL CANCELLED/);
       await assert.rejects(
         readFile(path.join(root, "config", "opencode", "commands", "new-feat.md"), "utf8"),
         "cancelling must not install any command"
       );
+    } finally {
+      await restore();
+    }
+  });
+});
+
+test("Escape at the targets step returns to the install mode step", async () => {
+  await withTuiSandbox(async ({ root, environment, restore }) => {
+    try {
+      await writeDetectedTargets(environment);
+      const { output, transcript } = scriptedOutput();
+      const answers = ["1", "2", "escape", "", "4"];
+      let multiSelectCalls = 0;
+      await runTui({
+        output,
+        ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; },
+        multiSelect: async () => { multiSelectCalls += 1; return undefined; },
+        skillOptions: bundledSkillsOnly
+      });
+
+      const text = transcript();
+      assert.equal((text.match(/╭ INSTALL MODE/g) ?? []).length, 2, "Escape must go back to the mode step, not cancel the install");
+      assert.equal(multiSelectCalls, 1);
+      assert.match(text, /╭ INSTALL CANCELLED/);
+      assert.match(text, /Nothing was changed\./);
+      await assert.rejects(
+        readFile(path.join(root, "config", "opencode", "commands", "araxys.md"), "utf8"),
+        "going back must not write anything"
+      );
+    } finally {
+      await restore();
+    }
+  });
+});
+
+test("Escape at the skills step returns to the targets step with the previous answer intact", async () => {
+  await withTuiSandbox(async ({ root, environment, restore }) => {
+    try {
+      await writeDetectedTargets(environment);
+      const { output, transcript } = scriptedOutput();
+      const answers = ["1", "2", "1", "", "4"];
+      const picks: Array<readonly number[] | undefined> = [[0], undefined, [0], [0]];
+      await runTui({
+        output,
+        ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; },
+        multiSelect: async () => picks.shift(),
+        skillOptions: bundledSkillsOnly
+      });
+
+      const text = transcript();
+      assert.equal((text.match(/╭ GLOBAL SKILLS/g) ?? []).length, 2, "Escape must reopen the skills step after going back and forward");
+      assert.equal((text.match(/╭ INSTALL TARGETS/g) ?? []).length, 2, "the targets step is re-entered");
+      assert.match(text, /\[ \] Codex/, "the target the user unchecked must stay unchecked after going back");
+      assert.match(text, /╭ INSTALL COMPLETE/);
+      await readFile(path.join(root, "config", "opencode", "commands", "araxys.md"), "utf8");
     } finally {
       await restore();
     }
