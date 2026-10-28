@@ -217,3 +217,15 @@ test("unsafe fetched paths and extra local files are rejected", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("a custom catalog skill id cannot escape the managed skill directory", async () => {
+  const { root, restoreHome } = await fixture();
+  try {
+    const unsafe = entry({ id: "../escape" });
+    await assert.rejects(installSkill(root, unsafe.id, "opencode", options(unsafe)), /unsafe skill id/i);
+    await assert.rejects(readFile(path.join(root, ".config", "opencode", "escape", "SKILL.md"), "utf8"), { code: "ENOENT" });
+  } finally {
+    restoreHome();
+    await rm(root, { recursive: true, force: true });
+  }
+});

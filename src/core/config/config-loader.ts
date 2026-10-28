@@ -20,8 +20,13 @@ export async function loadNixConfig(
   }
 
   const raw = await readFile(configPath, "utf8");
-  const parsed = JSON.parse(raw) as Partial<NixConfig>;
+  const parsed = JSON.parse(raw) as Partial<NixConfig> & Record<string, unknown>;
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`Nix config at ${configPath} must contain a JSON object.`);
+  }
+
   const config: NixConfig = {
+    ...parsed,
     projectName: parsed.projectName ?? defaultNixConfig.projectName,
     defaultArchitecture:
       parsed.defaultArchitecture ?? defaultNixConfig.defaultArchitecture,
@@ -45,8 +50,10 @@ export async function writeDefaultNixConfig(
   environment: NodeJS.ProcessEnv = process.env
 ): Promise<string> {
   const configPath = getNixConfigPath(environment);
+  const existing = await loadNixConfig(_baseDirectory, environment);
   const config: NixConfig = {
     ...defaultNixConfig,
+    ...(existing.source === "default" ? {} : existing.config),
     ...overrides
   };
 

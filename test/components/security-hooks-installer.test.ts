@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -87,6 +87,59 @@ test("install refuses malformed or user-owned plugin targets without overwriting
     await writeFile(path.join(openCodePluginPath(value.projectRoot), "user.ts"), "user-owned\n");
     await assert.rejects(value.installer.install(value.projectRoot), /conflict|unowned/i);
     assert.equal(await readFile(path.join(openCodePluginPath(value.projectRoot), "user.ts"), "utf8"), "user-owned\n");
+  } finally { value.restoreHome(); await rm(value.directory, { recursive: true, force: true }); }
+});
+
+test("install refuses a symlinked global target ancestor without writing outside it", async (t) => {
+  const value = await fixture();
+  try {
+    const outside = path.join(value.directory, "outside-codex-home");
+    const codexHome = path.join(value.projectRoot, ".codex");
+    await mkdir(outside, { recursive: true });
+    try {
+      await symlink(outside, codexHome, "junction");
+    } catch (error) {
+      const code = typeof error === "object" && error !== null && "code" in error
+        ? (error as NodeJS.ErrnoException).code
+        : undefined;
+      if (process.platform === "win32" && ["EPERM", "EACCES", "UNKNOWN"].includes(code ?? "")) {
+        t.skip("Windows symlink creation is unavailable in this environment");
+        return;
+      }
+      throw error;
+    }
+
+    await assert.rejects(value.installer.install(value.projectRoot), /symlink/i);
+    assert.deepEqual(await readdir(outside), []);
+  } finally { value.restoreHome(); await rm(value.directory, { recursive: true, force: true }); }
+});
+
+test("uninstall refuses a symlinked global target ancestor without deleting outside files", async (t) => {
+  const value = await fixture();
+  try {
+    const outside = path.join(value.directory, "outside-codex-home");
+    const codexHome = path.join(value.projectRoot, ".codex");
+    const codexAssets = path.join(outside, "hooks", "nix-ai-security");
+    await mkdir(codexAssets, { recursive: true });
+    await writeFile(path.join(codexAssets, "codex-hook-runtime.js"), "// codex-hook-runtime.js\n");
+    await writeFile(path.join(outside, "hooks.json"), JSON.stringify({ hooks: { PreToolUse: [
+      { matcher: "Bash|PowerShell|Cmd", hooks: [{ type: "command", command: managedCommand(value.projectRoot) }] }
+    ] } }));
+    try {
+      await symlink(outside, codexHome, "junction");
+    } catch (error) {
+      const code = typeof error === "object" && error !== null && "code" in error
+        ? (error as NodeJS.ErrnoException).code
+        : undefined;
+      if (process.platform === "win32" && ["EPERM", "EACCES", "UNKNOWN"].includes(code ?? "")) {
+        t.skip("Windows symlink creation is unavailable in this environment");
+        return;
+      }
+      throw error;
+    }
+
+    await assert.rejects(value.installer.uninstall(value.projectRoot), /symlink/i);
+    assert.equal(await readFile(path.join(codexAssets, "codex-hook-runtime.js"), "utf8"), "// codex-hook-runtime.js\n");
   } finally { value.restoreHome(); await rm(value.directory, { recursive: true, force: true }); }
 });
 

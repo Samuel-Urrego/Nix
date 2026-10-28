@@ -5,22 +5,35 @@ on:
     tags:
       - "v*"
 
-permissions:
-  contents: read
-
 jobs:
   publish:
     # The verified platform for v1 is Windows; the published package itself is
     # platform-neutral TypeScript, but the suite is only proven here.
     runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          node-version: "22"
-          cache: npm
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22.14.0"
+          package-manager-cache: false
           registry-url: "https://registry.npmjs.org"
+
+      - name: Install npm with trusted publishing support
+        run: npm install --global npm@11.21.1
+
+      - name: Verify npm trusted publishing prerequisites
+        shell: pwsh
+        run: |
+          $npmVersion = (npm --version).Trim()
+          if ([version]$npmVersion -lt [version]"11.5.1") {
+            throw "npm $npmVersion is below the minimum version required for trusted publishing (11.5.1)."
+          }
 
       - name: Install dependencies
         run: npm ci
@@ -37,6 +50,3 @@ jobs:
       # prepack (build), so a failing suite blocks the release here.
       - name: Publish to npm
         run: npm publish
-        env:
-          # setup-node writes an .npmrc that expands this exact variable name.
-          NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}

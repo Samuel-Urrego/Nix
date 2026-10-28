@@ -19,8 +19,20 @@ interface PackageJson {
   readonly publishConfig?: { readonly access?: string };
 }
 
+interface PackageLock {
+  readonly name?: string;
+  readonly version?: string;
+  readonly packages?: {
+    readonly ""?: { readonly name?: string; readonly version?: string };
+  };
+}
+
 async function readPackage(): Promise<PackageJson> {
   return JSON.parse(await readFile(path.join(root, "package.json"), "utf8")) as PackageJson;
+}
+
+async function readPackageLock(): Promise<PackageLock> {
+  return JSON.parse(await readFile(path.join(root, "package-lock.json"), "utf8")) as PackageLock;
 }
 
 test("package is publishable to the public npm registry", async () => {
@@ -43,6 +55,15 @@ test("package name and version match the CLI project metadata", async () => {
   const pkg = await readPackage();
   assert.equal(projectMetadata.packageName, pkg.name);
   assert.equal(projectMetadata.version, pkg.version);
+});
+
+test("package manifest and lockfile root metadata stay in sync", async () => {
+  const pkg = await readPackage();
+  const lock = await readPackageLock();
+  assert.equal(lock.name, pkg.name);
+  assert.equal(lock.version, pkg.version);
+  assert.equal(lock.packages?.[""]?.name, pkg.name);
+  assert.equal(lock.packages?.[""]?.version, pkg.version);
 });
 
 test("upgrade installs the latest published version and never a branch", () => {
