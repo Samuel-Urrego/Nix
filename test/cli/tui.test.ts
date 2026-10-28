@@ -397,6 +397,24 @@ test("in-TUI update reports an unresolved target instead of guessing a version",
   });
 });
 
+test("the wolf banner appears once on the first home screen", async () => {
+  await withTuiSandbox(async ({ environment, restore }) => {    try {
+      await writeDetectedTargets(environment);
+      const { output, transcript } = scriptedOutput();
+      const answers = ["1", "1", "none", "no", "", "4"];
+      await runTui({ output, ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; } });
+
+      const text = transcript();
+      const wolfLines = text.split("\n").filter((line) => line.includes("⢀⣴⠫⠤⣶⣿"));
+      assert.equal(wolfLines.length, 1, "the wolf is printed exactly once");
+      assert.ok(text.indexOf("⢀⣴⠫⠤⣶⣿") < text.indexOf("╭ NIX AI-STACK"), "the wolf precedes the first menu");
+      assert.ok(text.lastIndexOf("What would you like to do?") > text.indexOf("⢀⣴⠫⠤⣶⣿"), "the menu still renders");
+    } finally {
+      await restore();
+    }
+  });
+});
+
 interface FakeTty extends PassThrough {
   isTTY: boolean;
   isRaw: boolean;
@@ -404,11 +422,11 @@ interface FakeTty extends PassThrough {
   setRawMode: (mode: boolean) => FakeTty;
 }
 
-function createFakeTty(): FakeTty {
+function createFakeTty(columns = 80): FakeTty {
   const stream = new PassThrough() as FakeTty;
   stream.isTTY = true;
   stream.isRaw = false;
-  stream.columns = 80;
+  stream.columns = columns;
   stream.setRawMode = (mode) => {
     stream.isRaw = mode;
     return stream;
@@ -416,8 +434,7 @@ function createFakeTty(): FakeTty {
   return stream;
 }
 
-async function waitForMarker(pending: () => string, marker: string): Promise<void> {
-  const deadline = Date.now() + 5000;
+async function waitForMarker(pending: () => string, marker: string): Promise<void> {  const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
     if (pending().includes(marker)) return;
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -469,6 +486,35 @@ test("real keyboard selection drives the guided install end to end", async () =>
       const codexSkill = await readFile(path.join(root, "home", ".agents", "skills", "new-feat", "SKILL.md"), "utf8");
       assert.match(codexSkill, /nix-ai:workflow-command id=new-feat/);
       assert.equal(input.isRaw, false);
+    } finally {
+      await restore();
+    }
+  });
+});
+
+test("the wolf banner is skipped on a terminal too narrow to render it", async () => {
+  await withTuiSandbox(async ({ restore }) => {
+    try {
+      const input = createFakeTty(24);
+      const output = createFakeTty(24);
+      let transcript = "";
+      let pending = "";
+      output.on("data", (chunk: Buffer) => {
+        const text = chunk.toString("utf8");
+        transcript += text;
+        pending += text;
+      });
+
+      const run = runTui({ input, output });
+      await waitForMarker(() => pending, "╭ NIX AI-STACK");
+      pending = "";
+      input.write("\u001b[B\u001b[B\u001b[B\r");
+      await run;
+
+      assert.doesNotMatch(transcript, /⢀⣴⠫⠤⣶⣿/);
+      assert.match(transcript, /Quit/);
+      const frameRows = transcript.split("\n").filter((line) => line.startsWith("╭") || line.startsWith("│") || line.startsWith("╰"));
+      assert.ok(frameRows.length > 0);
     } finally {
       await restore();
     }

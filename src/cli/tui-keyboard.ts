@@ -8,9 +8,11 @@ export interface KeyboardSelectionOptions {
   readonly prompt: string;
   readonly choices: readonly string[];
   readonly title?: string;
+  /** Extra lines drawn above the frame, typically a welcome banner. */
+  readonly banner?: readonly string[];
 }
 
-export async function selectWithKeyboard({ input, output, prompt, choices, title = "NIX AI-STACK" }: KeyboardSelectionOptions): Promise<number> {
+export async function selectWithKeyboard({ input, output, prompt, choices, title = "NIX AI-STACK", banner }: KeyboardSelectionOptions): Promise<number> {
   if (choices.length === 0) return -1;
   const terminalInput = input as KeyboardInput;
   if (typeof terminalInput.setRawMode !== "function") {
@@ -43,6 +45,10 @@ export async function selectWithKeyboard({ input, output, prompt, choices, title
     };
     const render = (): void => {
       output.write("\u001b[2J\u001b[H");
+      if (banner && banner.length > 0) {
+        for (const line of banner) output.write(`${line}\n`);
+        output.write("\n");
+      }
       const lines = [prompt, "", ...choices.map((choice, index) => `${index === selected ? "›" : " "} ${choice}`), "", "↑↓ Navigate · Enter Select · Esc Back"];
       writeFrame(output, title, lines);
     };

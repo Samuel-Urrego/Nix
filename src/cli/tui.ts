@@ -36,9 +36,15 @@ export interface TuiOptions {
 
 interface TuiTerminal {
   question(prompt: string): Promise<string>;
-  select(prompt: string, choices: readonly string[], title?: string): Promise<number>;
+  select(prompt: string, choices: readonly string[], title?: string, banner?: readonly string[]): Promise<number>;
   multiSelect(prompt: string, choices: readonly string[], title: string, initialSelected?: readonly number[]): Promise<readonly number[]>;
   close(): void;
+}
+
+function writeBanner(output: NodeJS.WritableStream, banner: readonly string[] | undefined): void {
+  if (!banner || banner.length === 0) return;
+  for (const line of banner) output.write(`${line}\n`);
+  output.write("\n");
 }
 
 function matchIndex(answer: string, choices: readonly string[]): number {
@@ -71,12 +77,14 @@ function createTuiTerminal(options: TuiOptions, input: NodeJS.ReadableStream, ou
     lineReader ??= createInterface({ input, output });
     return lineReader.question(prompt);
   };
-  const select = async (prompt: string, choices: readonly string[], title = "NIX AI-STACK"): Promise<number> => {
+  const select = async (prompt: string, choices: readonly string[], title = "NIX AI-STACK", banner?: readonly string[]): Promise<number> => {
     if (options.select) {
+      writeBanner(output, banner);
       writeFrame(output, title, [prompt, "", ...choices.map((choice) => `  ${choice}`), "", "↑↓ Navigate · Enter Select · Esc Back"]);
       return options.select(prompt, choices);
     }
     if (options.ask) {
+      writeBanner(output, banner);
       writeFrame(output, title, [prompt, "", ...choices.map((choice) => `  ${choice}`), "", "Select an item to continue."]);
       const answer = (await options.ask(prompt)).trim();
       if (["q", "b", "back", "escape"].includes(answer.toLowerCase())) return -1;
@@ -84,7 +92,7 @@ function createTuiTerminal(options: TuiOptions, input: NodeJS.ReadableStream, ou
     }
     lineReader?.close();
     lineReader = undefined;
-    return selectWithKeyboard({ input: input as NodeJS.ReadStream, output, prompt, choices, title });
+    return selectWithKeyboard({ input: input as NodeJS.ReadStream, output, prompt, choices, title, ...(banner ? { banner } : {}) });
   };
   const multiSelect = async (
     prompt: string,
@@ -148,6 +156,15 @@ const components = [
   { id: "agent.codex", category: "Agent targets", name: "Codex", description: "Global Codex configuration and skill installation target." }
 ] as const;
 
+const welcomeSubtitle = "  Global installer and updater for Codex and OpenCode";
+
+/** The wolf banner is only shown when the terminal can render it without wrapping. */
+function welcomeBanner(output: NodeJS.WritableStream): readonly string[] | undefined {
+  const columns = (output as NodeJS.WriteStream).columns ?? 80;
+  if (columns < 34) return undefined;
+  return [...header.split("\n"), "", welcomeSubtitle];
+}
+
 export async function runTui(options: TuiOptions = {}): Promise<void> {
   const input = options.input ?? stdin;
   const output = options.output ?? stdout;
@@ -167,11 +184,15 @@ export async function runTui(options: TuiOptions = {}): Promise<void> {
 
   try {
     let done = false;
+    let firstHome = true;
     while (!done) {
+      const banner = firstHome ? welcomeBanner(output) : undefined;
+      firstHome = false;
       const homeAction = await terminal.select(
         "What would you like to do?",
         ["Install AI-STACK", "Update AI-STACK", "Advanced management", "Quit"],
-        "NIX AI-STACK"
+        "NIX AI-STACK",
+        banner
       );
       if (homeAction === 3 || homeAction < 0) {
         done = true;

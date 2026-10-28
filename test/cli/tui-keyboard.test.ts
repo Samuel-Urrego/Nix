@@ -117,8 +117,45 @@ test("multi-select returns an empty selection when escaped", async () => {
   }
 });
 
-test("frame stays within narrow terminal width", () => {
+test("selector renders its banner above the frame", async () => {
+  const input = new PassThrough() as PassThrough & {
+    isTTY: boolean;
+    isRaw: boolean;
+    setRawMode: (mode: boolean) => PassThrough;
+  };
+  input.isTTY = true;
+  input.isRaw = false;
+  input.setRawMode = (mode) => {
+    input.isRaw = mode;
+    return input;
+  };
   const output = new PassThrough() as PassThrough & { columns: number };
+  output.columns = 80;
+  let transcript = "";
+  output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
+
+  try {
+    const pendingSelection = selectWithKeyboard({
+      input: input as unknown as NodeJS.ReadStream,
+      output,
+      prompt: "Choose",
+      choices: ["One"],
+      banner: ["⠀⣀⡀⠀"]
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    input.write("\r");
+    await pendingSelection;
+
+    const bannerIndex = transcript.indexOf("⠀⣀⡀⠀");
+    assert.ok(bannerIndex >= 0, "banner is rendered");
+    assert.ok(bannerIndex < transcript.indexOf("╭ NIX AI-STACK"), "banner precedes the frame");
+  } finally {
+    input.destroy();
+    output.destroy();
+  }
+});
+
+test("frame stays within narrow terminal width", () => {  const output = new PassThrough() as PassThrough & { columns: number };
   output.columns = 20;
   let transcript = "";
   output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
