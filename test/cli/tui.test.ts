@@ -396,3 +396,81 @@ test("in-TUI update reports an unresolved target instead of guessing a version",
     }
   });
 });
+
+interface FakeTty extends PassThrough {
+  isTTY: boolean;
+  isRaw: boolean;
+  columns: number;
+  setRawMode: (mode: boolean) => FakeTty;
+}
+
+function createFakeTty(): FakeTty {
+  const stream = new PassThrough() as FakeTty;
+  stream.isTTY = true;
+  stream.isRaw = false;
+  stream.columns = 80;
+  stream.setRawMode = (mode) => {
+    stream.isRaw = mode;
+    return stream;
+  };
+  return stream;
+}
+
+async function waitForMarker(pending: () => string, marker: string): Promise<void> {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    if (pending().includes(marker)) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`Timed out waiting for marker: ${marker}`);
+}
+
+test("real keyboard selection drives the guided install end to end", async () => {
+  await withTuiSandbox(async ({ root, environment, restore }) => {
+    try {
+      await writeDetectedTargets(environment);
+      const input = createFakeTty();
+      const output = createFakeTty();
+      let transcript = "";
+      let pending = "";
+      output.on("data", (chunk: Buffer) => {
+        const text = chunk.toString("utf8");
+        transcript += text;
+        pending += text;
+      });
+      const expect = async (marker: string): Promise<void> => {
+        await waitForMarker(() => pending, marker);
+        pending = "";
+      };
+
+      const run = runTui({ input, output });
+
+      await expect("What would you like to do?");
+      input.write("\r");
+      await expect("Where should Nix install?");
+      input.write("\r");
+      await expect("Which skills should Nix install?");
+      input.write("\r");
+      await expect("Apply these global changes?");
+      input.write("yes\r");
+      await expect("These changes are global");
+      input.write("\r");
+      await expect("What would you like to do?");
+      input.write("\u001b[B\u001b[B\u001b[B\r");
+
+      await run;
+
+      assert.match(transcript, /╭ NIX AI-STACK/);
+      assert.match(transcript, /› Install AI-STACK/);
+      assert.match(transcript, /\[x\] OpenCode — signalled by config:/);
+      assert.match(transcript, /\[x\] Codex — signalled by config:/);
+      const command = await readFile(path.join(root, "config", "opencode", "commands", "new-feat.md"), "utf8");
+      assert.match(command, /nix-ai:workflow-command id=new-feat/);
+      const codexSkill = await readFile(path.join(root, "home", ".agents", "skills", "new-feat", "SKILL.md"), "utf8");
+      assert.match(codexSkill, /nix-ai:workflow-command id=new-feat/);
+      assert.equal(input.isRaw, false);
+    } finally {
+      await restore();
+    }
+  });
+});

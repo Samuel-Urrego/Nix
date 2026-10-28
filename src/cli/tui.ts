@@ -3,7 +3,7 @@ import { stdin, stdout } from "node:process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getStackStatePath, loadStackState, saveStackState } from "../core/config/stack-state.js";
-import { getCodexUserSkillsDirectory, getGlobalSkillTargetPath, getOpenCodeCommandsDirectory } from "../core/config/global-paths.js";
+import { getGlobalSkillTargetPath, getOpenCodeCommandsDirectory } from "../core/config/global-paths.js";
 import { detectAgentTargets, type AgentDetection } from "../core/config/agent-detection.js";
 import { CodexSkillAdapter } from "../core/components/codex-skill-adapter.js";
 import { nixCoreSkill } from "../core/components/component-catalog.js";
