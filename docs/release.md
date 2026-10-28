@@ -92,6 +92,11 @@ npm test
 npm pack                                   # runs the prepare build, then writes nix-ai-stack-<version>.tgz
 git tag -a v<version> -m "Nix <version>"
 git push origin v<version>
+```
+
+Pushing a `v*` tag triggers `.github/workflows/release.yml`, which installs dependencies, builds, runs the test suite, refuses a tag that does not match the package version, packs the artifact, and creates or updates the GitHub release with the tarball attached. The manual `gh release create` below is only the fallback when the workflow is unavailable:
+
+```powershell
 gh release create v<version> .\nix-ai-stack-<version>.tgz --title "v<version>" --notes "<summary>"
 ```
 
