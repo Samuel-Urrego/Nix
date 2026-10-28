@@ -53,7 +53,8 @@ class InPlaceScreen {
 }
 
 function columnsOf(output: NodeJS.WritableStream): number {
-  return (output as NodeJS.WriteStream).columns ?? 80;
+  const columns = (output as NodeJS.WriteStream).columns;
+  return typeof columns === "number" && columns > 0 ? columns : 80;
 }
 
 /** A key the selectors understand, already free of escape-sequence ambiguity. */
@@ -387,7 +388,10 @@ export function createProgress(output: NodeJS.WritableStream, title: string, tot
 
 /** Builds the exact physical rows of a frame, wrapping to the terminal width. */
 export function buildFrame(title: string, lines: readonly string[], columns: number): string[] {
-  const width = Math.max(4, Math.min(76, columns));
+  // One column must stay free: a row as wide as the terminal auto-wraps into an
+  // extra physical row, and the in-place redraw then moves up one row too few,
+  // so the selection looks frozen even though it is changing.
+  const width = Math.max(4, Math.min(76, columns - 1));
   const innerWidth = width - 4;
   const wrapped = lines.flatMap((line) => wrapLine(line, innerWidth));
   const visibleTitle = title.slice(0, Math.max(0, width - 4));

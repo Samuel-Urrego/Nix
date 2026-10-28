@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 
-import { createProgress, multiSelectWithKeyboard, selectWithKeyboard, writeFrame } from "../../src/cli/tui-keyboard.js";
+import { buildFrame, createProgress, multiSelectWithKeyboard, selectWithKeyboard, writeFrame } from "../../src/cli/tui-keyboard.js";
 
 /** Fails loudly instead of hanging the suite when a selector never answers. */
 async function withDeadline<T>(pending: Promise<T>, message: string): Promise<T> {
@@ -141,6 +141,17 @@ test("a selector created after a cancelled one still moves with arrow keys", asy
     input.destroy();
     output.destroy();
   }
+});
+
+test("frame rows never fill the last terminal column", () => {
+  const columns = 76;
+  const frame = buildFrame("CONFIRM", ["Apply these global changes?", "", "Yes, install", "No, cancel"], columns);
+
+  const widest = Math.max(...frame.map((row) => row.length));
+  assert.ok(
+    frame.every((row) => row.length < columns),
+    `a row exactly ${columns} wide auto-wraps in the terminal and every in-place redraw after it lands one row off (widest: ${widest})`
+  );
 });
 
 test("progress reporter fills a framed bar as steps complete", () => {
