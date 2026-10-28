@@ -10,6 +10,8 @@ export interface KeyboardSelectionOptions {
   readonly title?: string;
   /** Extra lines drawn above the frame, typically a welcome banner. */
   readonly banner?: readonly string[];
+  /** Row highlighted on the first render. Defaults to the first choice. */
+  readonly initialIndex?: number;
 }
 
 export interface KeyboardMultiSelectOptions {
@@ -54,7 +56,7 @@ function columnsOf(output: NodeJS.WritableStream): number {
   return (output as NodeJS.WriteStream).columns ?? 80;
 }
 
-export async function selectWithKeyboard({ input, output, prompt, choices, title = "NIX AI-STACK", banner }: KeyboardSelectionOptions): Promise<number> {
+export async function selectWithKeyboard({ input, output, prompt, choices, title = "NIX AI-STACK", banner, initialIndex = 0 }: KeyboardSelectionOptions): Promise<number> {
   if (choices.length === 0) return -1;
   const terminalInput = input as KeyboardInput;
   if (typeof terminalInput.setRawMode !== "function") {
@@ -64,7 +66,7 @@ export async function selectWithKeyboard({ input, output, prompt, choices, title
   emitKeypressEvents(input);
   const wasRaw = terminalInput.isRaw ?? false;
   const screen = new InPlaceScreen(output);
-  let selected = 0;
+  let selected = initialIndex >= 0 && initialIndex < choices.length ? initialIndex : 0;
   let settled = false;
 
   return new Promise<number>((resolve, reject) => {
@@ -73,6 +75,7 @@ export async function selectWithKeyboard({ input, output, prompt, choices, title
       input.removeListener("close", onClose);
       input.removeListener("error", onError);
       terminalInput.setRawMode(wasRaw);
+      output.write("\u001b[?25h");
     };
     const finish = (value: number): void => {
       if (settled) return;
@@ -113,6 +116,7 @@ export async function selectWithKeyboard({ input, output, prompt, choices, title
     input.once("error", onError);
     terminalInput.setRawMode(true);
     input.resume();
+    output.write("\u001b[?25l");
     render();
   });
 }
@@ -152,6 +156,7 @@ export async function multiSelectWithKeyboard({
       input.removeListener("close", onClose);
       input.removeListener("error", onError);
       terminalInput.setRawMode(wasRaw);
+      output.write("\u001b[?25h");
     };
     const finish = (value: readonly number[]): void => {
       if (settled) return;
@@ -258,8 +263,36 @@ export async function multiSelectWithKeyboard({
     input.once("error", onError);
     terminalInput.setRawMode(true);
     input.resume();
+    output.write("\u001b[?25l");
     render();
   });
+}
+
+export interface ProgressReporter {
+  /** Renders the bar for a step that is about to run. */
+  update(completed: number, label: string): void;
+  /** Replaces the bar with the final report, optionally under a new title. */
+  finish(lines: readonly string[], title?: string): void;
+}
+
+/** Framed, in-place progress bar for multi-step work. */
+export function createProgress(output: NodeJS.WritableStream, title: string, total: number): ProgressReporter {
+  const screen = new InPlaceScreen(output);
+  const steps = Math.max(1, total);
+  const barWidth = Math.max(10, Math.min(28, Math.min(76, columnsOf(output)) - 26));
+  const draw = (completed: number, label: string, frameTitle: string): void => {
+    const bounded = Math.max(0, Math.min(steps, completed));
+    const filled = Math.round((barWidth * bounded) / steps);
+    const bar = `${"█".repeat(filled)}${"░".repeat(barWidth - filled)}`;
+    const percent = Math.round((100 * bounded) / steps);
+    screen.draw(buildFrame(frameTitle, [bar, `${bounded}/${steps} steps · ${percent}%`, "", label], columnsOf(output)));
+  };
+  return {
+    update: (completed, label) => draw(completed, label, title),
+    finish: (lines, frameTitle) => {
+      screen.draw(buildFrame(frameTitle ?? title, lines, columnsOf(output)));
+    }
+  };
 }
 
 /** Builds the exact physical rows of a frame, wrapping to the terminal width. */

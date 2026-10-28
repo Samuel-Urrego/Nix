@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, rmdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -117,7 +117,10 @@ function renderOpenCodeCommand(command: WorkflowCommandDefinition): string {
 }
 
 function renderCodexSkill(command: WorkflowCommandDefinition): string {
-  const name = command.codexSkillId ?? command.id;
+  // The frontmatter name stays the command id: the wrapper directory is namespaced
+  // so it never collides with a skill directory, but Codex should still list the
+  // command under its own name instead of the internal directory name.
+  const name = command.id;
   const header = [
     "---",
     `name: ${name}`,
@@ -225,6 +228,8 @@ export async function installAgentCommands(
     if (operation.kind === "write") {
       await mkdir(path.dirname(operation.absolutePath), { recursive: true });
       await writeFile(operation.absolutePath, operation.content, "utf8");
+    } else if (operation.kind === "removeDir") {
+      await rm(operation.absolutePath, { recursive: true, force: true });
     } else {
       await rm(operation.absolutePath, { force: true });
       await rmdir(path.dirname(operation.absolutePath)).catch(() => undefined);
@@ -253,6 +258,14 @@ export async function removeAgentCommands(root: string, agent: SkillAgent): Prom
     await rmdir(path.dirname(absolute)).catch(() => undefined);
     removed.push(displayPath(absolute));
   }
+  if (agent === "codex") {
+    for (const legacy of legacyCodexWrapperDirectories()) {
+      const cleanup = await planLegacyWrapperRemoval(legacy.id, legacy.directory);
+      if (cleanup === undefined) continue;
+      await rm(cleanup.absolutePath, { recursive: true, force: true });
+      removed.push(displayPath(cleanup.absolutePath));
+    }
+  }
   return { agent, installed: [], removed, skipped };
 }
 
@@ -264,6 +277,10 @@ type InstallOperation =
     }
   | {
       readonly kind: "remove";
+      readonly absolutePath: string;
+    }
+  | {
+      readonly kind: "removeDir";
       readonly absolutePath: string;
     };
 
@@ -279,6 +296,18 @@ async function planInstall(root: string, state: StackState, agent: SkillAgent): 
   const installed: string[] = [];
   const removed: string[] = [];
   const skipped: AgentCommandSkip[] = [];
+
+  if (agent === "codex") {
+    // Older builds wrote the /araxys and /security-audit wrappers into the same
+    // directory as the installed skill. That directory now belongs to the skill,
+    // so a wrapper that Nix fully owns there is a stale artifact and is removed.
+    for (const legacy of legacyCodexWrapperDirectories()) {
+      const cleanup = await planLegacyWrapperRemoval(legacy.id, legacy.directory);
+      if (cleanup === undefined) continue;
+      operations.push(cleanup);
+      removed.push(displayPath(cleanup.absolutePath));
+    }
+  }
 
   for (const availability of resolveCommandAvailability(state)) {
     const command = availability.command;
@@ -326,6 +355,42 @@ function displayPath(absolutePath: string): string {
 
 function isManagedCommand(content: string, id: WorkflowCommandId): boolean {
   return content.includes(`<!-- nix-ai:workflow-command id=${id} -->`);
+}
+
+/**
+ * Directories that older Nix builds used for Codex command wrappers. The mapping
+ * is explicit on purpose: it records a previous layout, not one derivable from
+ * today's catalog, and it must not drift when the catalog changes.
+ */
+const LEGACY_CODEX_WRAPPER_DIRECTORIES: ReadonlyArray<{ readonly id: WorkflowCommandId; readonly directory: string }> = [
+  { id: "araxys", directory: "araxys-integration" },
+  { id: "security-audit", directory: "security-audit" }
+];
+
+function legacyCodexWrapperDirectories(): ReadonlyArray<{ readonly id: WorkflowCommandId; readonly directory: string }> {
+  return LEGACY_CODEX_WRAPPER_DIRECTORIES;
+}
+
+/**
+ * Plans removal of a stale command wrapper only when Nix provably owns the whole
+ * directory: exactly one `SKILL.md` carrying this command's ownership marker.
+ * Anything else is left untouched, so unmanaged content is never destroyed.
+ */
+async function planLegacyWrapperRemoval(
+  id: WorkflowCommandId,
+  directory: string
+): Promise<InstallOperation | undefined> {
+  const target = path.join(getCodexUserSkillsDirectory(), directory);
+  let entries: string[];
+  try {
+    entries = await readdir(target);
+  } catch {
+    return undefined;
+  }
+  if (entries.length !== 1 || entries[0] !== "SKILL.md") return undefined;
+  const content = await readOptional(path.join(target, "SKILL.md"));
+  if (content === null || !isManagedCommand(content, id)) return undefined;
+  return { kind: "removeDir", absolutePath: target };
 }
 
 async function readOptional(file: string): Promise<string | null> {

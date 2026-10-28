@@ -58,6 +58,20 @@ function options(catalogEntry: SkillCatalogEntry, fetcher: () => Promise<SkillFi
   return { catalog: [catalogEntry], fetcher: async () => fetcher() };
 }
 
+test("external skills report runtime tools without blocking installation", async () => {
+  const { root, restoreHome } = await fixture();
+  try {
+    const plan = await previewSkill(root, "brag", "opencode");
+    assert.equal(plan.action, "install");
+    assert.deepEqual(plan.missing, []);
+    assert.ok(plan.dependencies.some((dependency) => dependency.description.includes("FFmpeg")));
+    assert.ok(plan.dependencies.every((dependency) => dependency.required === false));
+  } finally {
+    restoreHome();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("preview is read-only and discloses source, license, dependencies, and target", async () => {
   const { root, restoreHome } = await fixture();
   try {

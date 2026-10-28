@@ -2,7 +2,70 @@ import assert from "node:assert/strict";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 
-import { multiSelectWithKeyboard, selectWithKeyboard, writeFrame } from "../../src/cli/tui-keyboard.js";
+import { createProgress, multiSelectWithKeyboard, selectWithKeyboard, writeFrame } from "../../src/cli/tui-keyboard.js";
+
+function fakeInput(): PassThrough & {
+  isTTY: boolean;
+  isRaw: boolean;
+  setRawMode: (mode: boolean) => PassThrough;
+} {
+  const input = new PassThrough() as PassThrough & {
+    isTTY: boolean;
+    isRaw: boolean;
+    setRawMode: (mode: boolean) => PassThrough;
+  };
+  input.isTTY = true;
+  input.isRaw = false;
+  input.setRawMode = (mode) => {
+    input.isRaw = mode;
+    return input;
+  };
+  return input;
+}
+
+test("selector starts on the requested index", async () => {
+  const input = fakeInput();
+  const output = new PassThrough() as PassThrough & { columns: number };
+  output.columns = 48;
+  let transcript = "";
+  output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
+
+  try {
+    const pendingSelection = selectWithKeyboard({
+      input: input as unknown as NodeJS.ReadStream,
+      output,
+      prompt: "Confirm",
+      choices: ["Yes, install", "No, cancel"],
+      initialIndex: 1
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.match(transcript, /› No, cancel/);
+    input.write("\r");
+    assert.equal(await pendingSelection, 1);
+  } finally {
+    input.destroy();
+    output.destroy();
+  }
+});
+
+test("progress reporter fills a framed bar as steps complete", () => {
+  const output = new PassThrough();
+  let transcript = "";
+  output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
+
+  const progress = createProgress(output, "INSTALLING", 4);
+  progress.update(0, "Starting");
+  progress.update(2, "Halfway");
+  progress.finish(["Installed: 4"]);
+
+  assert.match(transcript, /╭ INSTALLING/);
+  assert.match(transcript, /0\/4/);
+  assert.match(transcript, /2\/4/);
+  assert.match(transcript, /█/);
+  assert.match(transcript, /░/);
+  assert.match(transcript, /Starting/);
+  assert.match(transcript, /Installed: 4/);
+});
 
 test("keyboard selector moves with arrow keys and returns the highlighted option", async () => {
   const input = new PassThrough() as PassThrough & {

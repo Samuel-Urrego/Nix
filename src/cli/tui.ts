@@ -18,10 +18,10 @@ import type { SpecialistAgentTarget } from "../core/agents/agent-contracts.js";
 import { skillCatalog } from "../core/skills/skill-catalog.js";
 import { describeSkillSource } from "../core/skills/skill-contracts.js";
 import type { SkillAgent } from "../core/skills/skill-contracts.js";
-import { getSkillStatus, installSkill, previewSkill, removeSkill, type SkillPlan } from "../core/skills/skill-installer.js";
+import { getSkillStatus, installSkill, previewSkill, removeSkill, type SkillInstallerOptions, type SkillPlan } from "../core/skills/skill-installer.js";
 import { createUpgradePlan, resolveLatestPublishedVersion, spawnUpgrade, type LatestVersionResolver, type UpgradeRunner } from "../core/system/npm-upgrade.js";
 import { projectMetadata } from "../core/system/project-metadata.js";
-import { multiSelectWithKeyboard, selectWithKeyboard, writeFrame } from "./tui-keyboard.js";
+import { createProgress, multiSelectWithKeyboard, selectWithKeyboard, writeFrame } from "./tui-keyboard.js";
 
 export interface TuiOptions {
   readonly input?: NodeJS.ReadableStream;
@@ -32,12 +32,17 @@ export interface TuiOptions {
   readonly detect?: () => Promise<ReadonlyArray<AgentDetection>>;
   readonly upgrade?: UpgradeRunner;
   readonly latestVersion?: LatestVersionResolver;
+  readonly skillOptions?: SkillInstallerOptions;
 }
 
 interface TuiTerminal {
   question(prompt: string): Promise<string>;
-  select(prompt: string, choices: readonly string[], title?: string, banner?: readonly string[]): Promise<number>;
+  select(prompt: string, choices: readonly string[], title?: string, banner?: readonly string[], initialIndex?: number): Promise<number>;
   multiSelect(prompt: string, choices: readonly string[], title: string, initialSelected?: readonly number[]): Promise<readonly number[]>;
+  /** Yes/No selection. Defaults to No so an accidental Enter changes nothing. */
+  confirm(prompt: string, yesLabel?: string, noLabel?: string): Promise<boolean>;
+  /** Writes a framed report panel. */
+  report(title: string, lines: readonly string[]): void;
   close(): void;
 }
 
@@ -47,8 +52,14 @@ function writeBanner(output: NodeJS.WritableStream, banner: readonly string[] | 
   output.write("\n");
 }
 
-function matchIndex(answer: string, choices: readonly string[]): number {
-  const trimmed = answer.trim();
+/** Keeps reports inside the frame by showing home-relative paths instead of full ones. */
+function shortenPath(value: string): string {
+  const home = process.env.USERPROFILE ?? process.env.HOME;
+  if (!home) return value;
+  return value.split(home).join("~");
+}
+
+function matchIndex(answer: string, choices: readonly string[]): number {  const trimmed = answer.trim();
   if (!trimmed) return -1;
   const numeric = Number(trimmed);
   if (Number.isInteger(numeric) && numeric >= 1 && numeric <= choices.length) return numeric - 1;
@@ -77,7 +88,7 @@ function createTuiTerminal(options: TuiOptions, input: NodeJS.ReadableStream, ou
     lineReader ??= createInterface({ input, output });
     return lineReader.question(prompt);
   };
-  const select = async (prompt: string, choices: readonly string[], title = "NIX AI-STACK", banner?: readonly string[]): Promise<number> => {
+  const select = async (prompt: string, choices: readonly string[], title = "NIX AI-STACK", banner?: readonly string[], initialIndex = 0): Promise<number> => {
     if (options.select) {
       writeBanner(output, banner);
       writeFrame(output, title, [prompt, "", ...choices.map((choice) => `  ${choice}`), "", "↑↓ Navigate · Enter Select · Esc Back"]);
@@ -92,7 +103,7 @@ function createTuiTerminal(options: TuiOptions, input: NodeJS.ReadableStream, ou
     }
     lineReader?.close();
     lineReader = undefined;
-    return selectWithKeyboard({ input: input as NodeJS.ReadStream, output, prompt, choices, title, ...(banner ? { banner } : {}) });
+    return selectWithKeyboard({ input: input as NodeJS.ReadStream, output, prompt, choices, title, initialIndex, ...(banner ? { banner } : {}) });
   };
   const multiSelect = async (
     prompt: string,
@@ -121,6 +132,9 @@ function createTuiTerminal(options: TuiOptions, input: NodeJS.ReadableStream, ou
     question,
     select,
     multiSelect,
+    confirm: async (prompt, yesLabel = "Yes, apply", noLabel = "No, cancel") =>
+      (await select(prompt, [yesLabel, noLabel], "CONFIRM", undefined, 1)) === 0,
+    report: (title, lines) => writeFrame(output, title, lines),
     close: () => lineReader?.close()
   };
 }
@@ -199,7 +213,7 @@ export async function runTui(options: TuiOptions = {}): Promise<void> {
       }
       output.write("\u001b[2J\u001b[H");
       if (homeAction === 0) {
-        await runGuidedInstall(terminal, output, detect, statePath);
+        await runGuidedInstall(terminal, output, detect, statePath, options.skillOptions);
         continue;
       }
       if (homeAction === 1) {
@@ -213,61 +227,99 @@ export async function runTui(options: TuiOptions = {}): Promise<void> {
   }
 }
 
+/** Shows a framed report and waits for the user before continuing. */
+async function pause(
+  terminal: TuiTerminal,
+  output: NodeJS.WritableStream,
+  title: string,
+  lines: readonly string[],
+  footer = "Press Enter to return to the home screen."
+): Promise<void> {
+  terminal.report(title, [...lines, "", footer]);
+  await terminal.question("");
+}
+
 async function runGuidedInstall(
   terminal: TuiTerminal,
   output: NodeJS.WritableStream,
   detect: () => Promise<ReadonlyArray<AgentDetection>>,
-  statePath: string
+  statePath: string,
+  skillOptions: SkillInstallerOptions | undefined
 ): Promise<void> {
   const root = process.cwd();
+  const catalog = skillOptions?.catalog ?? skillCatalog;
   const detections = await detect();
 
-  output.write("\n  Target detection\n");
+  const detectionLines: string[] = [];
   for (const detection of detections) {
-    output.write(`  ${detection.label}: ${detection.detected ? "detected" : "not detected"}\n`);
-    for (const evidence of detection.evidence) output.write(`    ${evidence}\n`);
-    if (!detection.detected) output.write("    No application configuration or CLI was found on this machine.\n");
+    detectionLines.push(`${detection.label}: ${detection.detected ? "detected" : "not detected"}`);
+    for (const evidence of detection.evidence) detectionLines.push(`  ${shortenPath(evidence)}`);
+    if (!detection.detected) detectionLines.push("  No application configuration or CLI was found on this machine.");
   }
+  writeFrame(output, "TARGET DETECTION", detectionLines);
 
   const available = detections.filter((detection) => detection.detected);
   if (available.length === 0) {
-    output.write("\n  Nix will not install into an application it cannot detect. Nothing was changed.\n");
-    await terminal.question("\n  Press Enter to return to the home screen.");
+    await pause(terminal, output, "NOTHING TO INSTALL", [
+      "Nix will not install into an application it cannot detect.",
+      "Nothing was changed."
+    ]);
     return;
   }
 
-  const targetChoices = available.map((detection) => `${detection.label} — signalled by ${detection.evidence[0]}`);
-  const targetPicks = await terminal.multiSelect(
-    "Where should Nix install? (all targets are global)",
-    targetChoices,
-    "INSTALL TARGETS",
-    available.map((_detection, index) => index)
+  const mode = await terminal.select(
+    "How do you want to install?",
+    ["Install everything (recommended)", "Choose targets and skills"],
+    "INSTALL MODE",
+    undefined,
+    0
   );
-  const targets = targetPicks.map((index) => available[index]?.agent).filter((agent): agent is SkillAgent => agent !== undefined);
-  if (targets.length === 0) {
-    output.write("\n  No target selected. No files changed.\n");
-    await terminal.question("\n  Press Enter to return to the home screen.");
+  if (mode < 0) {
+    await pause(terminal, output, "INSTALL CANCELLED", ["Nothing was changed."]);
     return;
   }
+  const installEverything = mode === 0;
 
-  const statuses = await getSkillStatus(root);
-  const skillEntries = skillCatalog.filter((entry) => targets.some((agent) => entry.compatibleAgents.includes(agent)));
-  const skillChoices = skillEntries.map((entry) => {
-    const state = statuses
-      .filter((status) => status.id === entry.id && targets.includes(status.agent))
-      .map((status) => `${status.agent}: ${status.state}`)
-      .join(", ");
-    return `${entry.name} — ${entry.description} (compatible: ${entry.compatibleAgents.join(", ")}; ${state || "not installed"})`;
-  });
-  // Everything starts checked: the user only unchecks what they do not want.
-  const initialSkills = skillEntries.map((_entry, index) => index);
-  const skillPicks = await terminal.multiSelect(
-    "Which skills should Nix install? (space to toggle, search to filter, Next to continue)",
-    skillChoices,
-    "GLOBAL SKILLS",
-    initialSkills
-  );
-  const skills = skillPicks.map((index) => skillEntries[index]).filter((entry) => entry !== undefined);
+  let targets: readonly SkillAgent[];
+  if (installEverything) {
+    targets = available.map((detection) => detection.agent);
+  } else {
+    const targetChoices = available.map((detection) => `${detection.label} — signalled by ${detection.evidence[0]}`);
+    const targetPicks = await terminal.multiSelect(
+      "Where should Nix install? (all targets are global)",
+      targetChoices,
+      "INSTALL TARGETS",
+      available.map((_detection, index) => index)
+    );
+    targets = targetPicks.map((index) => available[index]?.agent).filter((agent): agent is SkillAgent => agent !== undefined);
+    if (targets.length === 0) {
+      await pause(terminal, output, "INSTALL CANCELLED", ["No target selected. No files changed."]);
+      return;
+    }
+  }
+
+  const statuses = await getSkillStatus(root, skillOptions);
+  const skillEntries = catalog.filter((entry) => targets.some((agent) => entry.compatibleAgents.includes(agent)));
+  let skills: ReadonlyArray<(typeof skillEntries)[number]>;
+  if (installEverything) {
+    skills = skillEntries;
+  } else {
+    const skillChoices = skillEntries.map((entry) => {
+      const state = statuses
+        .filter((status) => status.id === entry.id && targets.includes(status.agent))
+        .map((status) => `${status.agent}: ${status.state}`)
+        .join(", ");
+      return `${entry.name} — ${entry.description} (compatible: ${entry.compatibleAgents.join(", ")}; ${state || "not installed"})`;
+    });
+    // Everything starts checked: the user only unchecks what they do not want.
+    const skillPicks = await terminal.multiSelect(
+      "Which skills should Nix install? (space to toggle, search to filter, Next to continue)",
+      skillChoices,
+      "GLOBAL SKILLS",
+      skillEntries.map((_entry, index) => index)
+    );
+    skills = skillPicks.map((index) => skillEntries[index]).filter((entry) => entry !== undefined);
+  }
 
   const state = await loadStackState(statePath);
   const workflows = state.workflows.sdd || state.workflows.tdd ? state.workflows : { sdd: true, tdd: true };
@@ -277,87 +329,142 @@ async function runGuidedInstall(
     ...(workflows.sdd ? ["workflow.sdd"] : []),
     ...(workflows.tdd ? ["workflow.tdd"] : [])
   ])];
-  const effectiveState = { ...state, selectedComponents, workflows, agentTargets: targets };
+  const effectiveState = { ...state, selectedComponents, workflows, agentTargets: [...targets] };
   const availabilities = resolveCommandAvailability(effectiveState);
-  output.write("\n  Global installation preview\n");
-  output.write(`  Targets: ${targets.join(", ")}\n`);
-  output.write(`  Workflows: SDD ${workflows.sdd ? "enabled" : "disabled"} · TDD ${workflows.tdd ? "enabled" : "disabled"} (core Nix workflows)\n\n`);
+
+  const previewLines: string[] = [
+    `Targets: ${targets.join(", ")}`,
+    `Workflows: SDD ${workflows.sdd ? "enabled" : "disabled"} · TDD ${workflows.tdd ? "enabled" : "disabled"} (core Nix workflows)`,
+    ""
+  ];
   for (const agent of targets) {
-    output.write(`  Commands [${agent}]\n`);
+    const installed: string[] = [];
+    const skipped: string[] = [];
     for (const availability of availabilities) {
       const command = availability.command;
       const target = agent === "opencode"
         ? path.join(getOpenCodeCommandsDirectory(), `${command.id}.md`)
         : path.join(getGlobalSkillTargetPath("codex", command.codexSkillId ?? command.id), "SKILL.md");
-      if (availability.slashAvailable) output.write(`  + ${target}\n`);
-      else output.write(`  - ${command.id} skipped: ${availability.slashReason ?? "unavailable"}\n`);
+      if (availability.slashAvailable) installed.push(agent === "opencode" ? path.basename(target) : path.basename(path.dirname(target)));
+      else skipped.push(`${command.id}: ${availability.slashReason ?? "unavailable"}`);
     }
+    const directory = agent === "opencode"
+      ? getOpenCodeCommandsDirectory()
+      : path.dirname(getGlobalSkillTargetPath("codex", "example"));
+    previewLines.push(`Commands [${agent}] → ${shortenPath(directory)}`);
+    if (installed.length > 0) previewLines.push(`  + ${installed.join(", ")}`);
+    for (const entry of skipped) previewLines.push(`  - ${entry}`);
+    previewLines.push("");
   }
 
-  const skillPlans: Array<{ readonly plan: SkillPlan; readonly agent: SkillAgent }> = [];
+  const skillPlans: Array<{ readonly plan: SkillPlan; readonly agent: SkillAgent; readonly name: string }> = [];
+  const runtimeNotes = new Set<string>();
   for (const entry of skills) {
     for (const agent of targets) {
       if (!entry.compatibleAgents.includes(agent)) continue;
-      const plan = await previewSkill(root, entry.id, agent);
-      skillPlans.push({ plan, agent });
-      output.write(`\n  Skill ${plan.action}: ${entry.name} [${agent}]\n  + ${plan.targetPath}\n`);
-      if (plan.missing.length > 0) output.write(`  Missing dependencies: ${plan.missing.join("; ")}\n`);
-      if (plan.reason) output.write(`  Reason: ${plan.reason}\n`);
+      const plan = await previewSkill(root, entry.id, agent, skillOptions);
+      skillPlans.push({ plan, agent, name: entry.name });
+      const advisory = plan.dependencies.filter((dependency) => !dependency.required && !dependency.satisfied);
+      for (const item of advisory) runtimeNotes.add(item.description);
     }
   }
-  output.write("\n  Unmanaged files are always preserved.\n");
+  for (const agent of targets) {
+    const group = skillPlans.filter((item) => item.agent === agent);
+    if (group.length === 0) continue;
+    previewLines.push(`Skills [${agent}] → ${shortenPath(path.dirname(group[0]!.plan.targetPath))}`);
+    const byAction = new Map<string, string[]>();
+    for (const item of group) {
+      const names = byAction.get(item.plan.action) ?? [];
+      names.push(item.name);
+      byAction.set(item.plan.action, names);
+    }
+    for (const [action, names] of byAction) previewLines.push(`  ${action}: ${names.join(", ")}`);
+    for (const item of group) {
+      if (item.plan.reason) previewLines.push(`  ${item.name}: ${item.plan.reason}`);
+      if (item.plan.missing.length > 0) previewLines.push(`  ${item.name}: blocking dependencies — ${item.plan.missing.join("; ")}`);
+    }
+    previewLines.push("");
+  }
+  if (runtimeNotes.size > 0) {
+    previewLines.push("Runtime tools these skills use (install them only when you need the skill):");
+    for (const note of runtimeNotes) previewLines.push(`  · ${note}`);
+    previewLines.push("");
+  }
+  previewLines.push("Unmanaged files are always preserved.");
+  writeFrame(output, "INSTALL PREVIEW", previewLines);
 
-  const confirmation = (await terminal.question("\n  Apply these global changes? Type yes to confirm: ")).trim().toLowerCase();
-  if (confirmation !== "yes") {
-    output.write("\n  No files changed.\n");
-    await terminal.question("\n  Press Enter to return to the home screen.");
+  const confirmed = await terminal.select(
+    "Apply these global changes?",
+    ["Yes, install", "No, cancel"],
+    "CONFIRM",
+    undefined,
+    1
+  );
+  if (confirmed !== 0) {
+    await pause(terminal, output, "INSTALL CANCELLED", ["No files changed."]);
     return;
   }
 
-  output.write("\n  Applying\n");
+  const progress = createProgress(output, "INSTALLING", targets.length + skillPlans.length);
+  let completed = 0;
   let installedCount = 0;
   let skippedCount = 0;
   const failures: string[] = [];
+
   for (const agent of targets) {
+    progress.update(completed, `Workflow commands for ${agent}`);
     try {
       const result = await installAgentCommands(root, effectiveState, agent);
       installedCount += result.installed.length;
       skippedCount += result.skipped.length;
-      output.write(`  commands [${agent}]: ${result.installed.length} installed\n`);
-      for (const skipped of result.skipped) output.write(`  Preserved: ${skipped.path} — ${skipped.reason}\n`);
+      for (const skipped of result.skipped) failures.push(`preserved ${skipped.path} — ${skipped.reason}`);
     } catch (error) {
       failures.push(`commands [${agent}]: ${error instanceof Error ? error.message : String(error)}`);
     }
+    completed += 1;
+    progress.update(completed, `Workflow commands for ${agent}`);
   }
+
   for (const { plan, agent } of skillPlans) {
-    if (plan.action === "already-current" || plan.action === "conflict" || plan.action === "incompatible") {
-      output.write(`  skill ${plan.id} [${agent}]: ${plan.action}\n`);
-      continue;
-    }
-    if (plan.missing.length > 0) {
-      output.write(`  skill ${plan.id} [${agent}]: skipped — missing dependencies\n`);
-      continue;
-    }
+    const label = `Skill ${plan.id} [${agent}]`;
+    progress.update(completed, label);
     try {
-      const result = await installSkill(root, plan.id, agent);
-      installedCount += result.fileCount;
-      output.write(`  skill ${plan.id} [${agent}]: ${result.action} (${result.fileCount} files)\n`);
+      if (plan.action === "already-current" || plan.action === "conflict" || plan.action === "incompatible") {
+        skippedCount += 1;
+        if (plan.reason) failures.push(`${label}: ${plan.action} — ${plan.reason}`);
+        else failures.push(`${label}: ${plan.action}`);
+      } else if (plan.missing.length > 0) {
+        skippedCount += 1;
+        failures.push(`${label}: skipped — missing dependencies`);
+      } else {
+        const result = await installSkill(root, plan.id, agent, skillOptions);
+        installedCount += result.fileCount;
+      }
     } catch (error) {
-      failures.push(`skill ${plan.id} [${agent}]: ${error instanceof Error ? error.message : String(error)}`);
+      failures.push(`${label}: ${error instanceof Error ? error.message : String(error)}`);
     }
+    completed += 1;
+    progress.update(completed, label);
   }
 
   await saveStackState(statePath, {
     schemaVersion: 1,
     selectedComponents: effectiveState.selectedComponents,
-    agentTargets: targets,
+    agentTargets: [...targets],
     workflows: { sdd: effectiveState.workflows.sdd, tdd: effectiveState.workflows.tdd }
   });
 
-  output.write(`\n  Installed: ${installedCount} · Preserved: ${skippedCount} · Failed: ${failures.length}\n`);
-  for (const failure of failures) output.write(`  Failure: ${failure}\n`);
-  output.write("  These changes are global; re-run the installer anytime to update them.\n");
-  await terminal.question("\n  Press Enter to return to the home screen.");
+  const report = [
+    `Installed: ${installedCount} files · Preserved: ${skippedCount} · Failed: ${failures.length}`,
+    ...(failures.length > 0 ? ["", ...failures.map((failure) => `Failure: ${failure}`)] : []),
+    ...(runtimeNotes.size > 0
+      ? ["", "Runtime tools these skills use (install them only when you need the skill):", ...[...runtimeNotes].map((note) => `  · ${note}`)]
+      : []),
+    "",
+    "These changes are global; re-run the installer anytime to update them."
+  ];
+  progress.finish(report, "INSTALL COMPLETE");
+  await terminal.question("");
 }
 
 async function runUpdate(
@@ -374,38 +481,48 @@ async function runUpdate(
     target = undefined;
   }
 
-  output.write("\n  AI-STACK update\n");
-  output.write(`  Current version: ${projectMetadata.version}\n`);
-  output.write(`  Target version: ${target ?? "latest published version (registry unavailable)"}\n`);
-  output.write(`  Command: ${plan.commandLine}\n`);
+  writeFrame(output, "AI-STACK UPDATE", [
+    `Current version: ${projectMetadata.version}`,
+    `Target version: ${target ?? "latest published version (registry unavailable)"}`,
+    `Command: ${plan.commandLine}`
+  ]);
 
   if (target !== undefined && target === projectMetadata.version) {
-    output.write("\n  The installed version is already the latest published version. Nothing to do.\n");
-    await terminal.question("\n  Press Enter to return to the home screen.");
+    await pause(terminal, output, "AI-STACK UPDATE", [
+      "The installed version is already the latest published version. Nothing to do."
+    ]);
     return;
   }
 
-  const confirmation = (await terminal.question("\n  Update the globally installed AI-STACK now? Type yes to confirm: ")).trim().toLowerCase();
-  if (confirmation !== "yes") {
-    output.write("\n  No changes applied.\n");
-    await terminal.question("\n  Press Enter to return to the home screen.");
+  const confirmed = await terminal.select(
+    "Update the globally installed AI-STACK now?",
+    ["Yes, update", "No, cancel"],
+    "CONFIRM",
+    undefined,
+    1
+  );
+  if (confirmed !== 0) {
+    await pause(terminal, output, "AI-STACK UPDATE", ["No changes applied."]);
     return;
   }
 
-  output.write("\n  Running the upgrade through npm...\n");
   let exitCode: number;
+  let failureDetail: string | undefined;
+  writeFrame(output, "AI-STACK UPDATE", ["Running the upgrade through npm..."]);
   try {
     exitCode = await upgrade(plan);
   } catch (error) {
     exitCode = 1;
-    output.write(`\n  Upgrade failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    failureDetail = error instanceof Error ? error.message : String(error);
   }
   if (exitCode === 0) {
-    output.write("\n  Upgrade finished. Confirm it with: nix-ai --version\n");
-  } else {
-    output.write(`\n  Upgrade failed with exit code ${exitCode}. Run the printed command manually to see the npm output.\n`);
+    await pause(terminal, output, "AI-STACK UPDATED", ["Upgrade finished. Confirm it with: nix-ai --version"]);
+    return;
   }
-  await terminal.question("\n  Press Enter to return to the home screen.");
+  await pause(terminal, output, "AI-STACK UPDATE FAILED", [
+    ...(failureDetail ? [`Upgrade failed: ${failureDetail}`] : []),
+    `Upgrade failed with exit code ${exitCode}. Run the printed command manually to see the npm output.`
+  ]);
 }
 
 async function runAdvancedManagement(
@@ -437,12 +554,13 @@ async function runAdvancedManagement(
     const choice = choiceIndex + 1;
 
     if (choice === categories.length + 1) {
-      output.write("\n  Read-only preview — no agent configuration will be changed.\n");
-      for (const component of components.filter((item) => selected.has(item.id))) {
-        output.write(`  + ${component.name}\n`);
-      }
-      if (selected.size === 0) output.write("  No components selected.\n");
-      await terminal.question("\n  Press Enter to return to the menu.");
+      const chosen = components.filter((item) => selected.has(item.id));
+      terminal.report("SELECTION PREVIEW", [
+        "Read-only preview — no agent configuration will be changed.",
+        "",
+        ...(chosen.length > 0 ? chosen.map((component) => `+ ${component.name}`) : ["No components selected."])
+      ]);
+      await terminal.question("");
       continue;
     }
     if (choice === categories.length + 2) {
@@ -456,8 +574,11 @@ async function runAdvancedManagement(
           tdd: selected.has("workflow.tdd")
         }
       });
-      output.write(`\n  Preferences saved to ${statePath}. Agent configuration was not changed.\n`);
-      await terminal.question("\n  Press Enter to return to the menu.");
+      terminal.report("PREFERENCES SAVED", [
+        `Preferences saved to ${shortenPath(statePath)}.`,
+        "Agent configuration was not changed."
+      ]);
+      await terminal.question("");
       continue;
     }
     if (choice === categories.length + 3) {
@@ -465,21 +586,25 @@ async function runAdvancedManagement(
       const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
       const adapter = new CodexSkillAdapter(sourceRoot);
       const plan = await adapter.preview(projectRoot, nixCoreSkill.id);
-      output.write(`\n  Preview: ${plan.action} ${nixCoreSkill.name}\n  Target: ${plan.targetPath}\n`);
-      if (plan.reason) output.write(`  Reason: ${plan.reason}\n`);
+      terminal.report("NIX CORE SKILL", [
+        `Preview: ${plan.action} ${nixCoreSkill.name}`,
+        `Target: ${shortenPath(plan.targetPath)}`,
+        ...(plan.reason ? [`Reason: ${plan.reason}`] : [])
+      ]);
       if (plan.action === "install" || plan.action === "update") {
-        const confirmation = (await terminal.question("\n  Apply this global change? Type yes to confirm: ")).trim().toLowerCase();
-        if (confirmation === "yes") {
+        if (await terminal.confirm("Apply this global change?")) {
           const result = plan.action === "update"
             ? await adapter.update(projectRoot, nixCoreSkill.id)
             : await adapter.install(projectRoot, nixCoreSkill.id);
-          output.write(`\n  ${result.action}: ${nixCoreSkill.name}\n`);
-          if (result.backupId) output.write(`  Backup: ${result.backupId}\n`);
+          terminal.report("NIX CORE SKILL", [
+            `${result.action}: ${nixCoreSkill.name}`,
+            ...(result.backupId ? [`Backup: ${result.backupId}`] : [])
+          ]);
         } else {
-          output.write("\n  No files changed.\n");
+          terminal.report("NIX CORE SKILL", ["No files changed."]);
         }
       }
-      await terminal.question("\n  Press Enter to return to the menu.");
+      await terminal.question("");
       continue;
     }
     if (choice === categories.length + 4) {
@@ -534,14 +659,16 @@ async function runAdvancedManagement(
 async function showWorkflowCommands(terminal: TuiTerminal, output: NodeJS.WritableStream): Promise<void> {
   const state = await loadStackState();
   const availabilities = resolveCommandAvailability(state);
-  output.write("\n  Nix commands\n\n");
-  for (const availability of availabilities) {
+  terminal.report("NIX COMMANDS", availabilities.flatMap((availability) => {
     const command = availability.command;
-    output.write(`  ${command.slash} — ${command.description}\n`);
-    output.write(`    CLI: ${availability.cliAvailable ? "available" : `unavailable — ${availability.cliReason}`}\n`);
-    output.write(`    Slash: ${availability.slashAvailable ? "available" : `unavailable — ${availability.slashReason}`}\n`);
-    output.write(`    Artifacts: ${command.artifacts.join(", ")}\n\n`);
-  }
+    return [
+      `${command.slash} — ${command.description}`,
+      `  CLI: ${availability.cliAvailable ? "available" : `unavailable — ${availability.cliReason}`}`,
+      `  Slash: ${availability.slashAvailable ? "available" : `unavailable — ${availability.slashReason}`}`,
+      `  Artifacts: ${command.artifacts.join(", ")}`,
+      ""
+    ];
+  }));
   const action = await terminal.select("Choose an action", [
     "Install/update commands for OpenCode",
     "Install/update commands for Codex",
@@ -561,20 +688,26 @@ async function showWorkflowCommands(terminal: TuiTerminal, output: NodeJS.Writab
   const commandPaths = workflowCommandCatalog.map((command) => agent === "opencode"
     ? path.join(getOpenCodeCommandsDirectory(), `${command.id}.md`)
     : path.join(getGlobalSkillTargetPath("codex", command.codexSkillId ?? command.id), "SKILL.md"));
-  output.write(`\n  ${removing ? "Removal preview" : "Installation preview"} [${agent}]\n`);
-  commandPaths.forEach((target) => output.write(`  ${removing ? "-" : "+"} ${target}\n`));
-  output.write("  Unmanaged files are preserved.\n");
-  const confirmation = (await terminal.question(`\n  ${removing ? "Remove only Nix-managed commands" : "Install available commands"}? Type yes to confirm: `)).trim().toLowerCase();
-  if (confirmation !== "yes") {
-    output.write("\n  No files changed.\n");
-  } else {
+  const previewTitle = removing ? "COMMAND REMOVAL" : "COMMAND INSTALL";
+  terminal.report(previewTitle, [
+    `[${agent}] ${removing ? "Removal preview" : "Installation preview"}`,
+    "",
+    ...commandPaths.map((target) => `${removing ? "-" : "+"} ${shortenPath(target)}`),
+    "",
+    "Unmanaged files are preserved."
+  ]);
+  if (await terminal.confirm(`${removing ? "Remove only Nix-managed commands" : "Install available commands"}?`)) {
     const result = removing
       ? await removeAgentCommands(process.cwd(), agent)
       : await installAgentCommands(process.cwd(), state, agent);
-    output.write(`\n  ${removing ? "Removed" : "Installed"}: ${removing ? result.removed.length : result.installed.length} command files.\n`);
-    result.skipped.forEach((item) => output.write(`  Preserved: ${item.path} — ${item.reason}\n`));
+    terminal.report(previewTitle, [
+      `${removing ? "Removed" : "Installed"}: ${removing ? result.removed.length : result.installed.length} command files.`,
+      ...result.skipped.map((item) => `Preserved: ${shortenPath(item.path)} — ${item.reason}`)
+    ]);
+  } else {
+    terminal.report(previewTitle, ["No files changed."]);
   }
-  await terminal.question("\n  Press Enter to return to the menu.");
+  await terminal.question("");
 }
 
 async function chooseAgentTarget(
@@ -611,31 +744,38 @@ async function manageSpecialistAgents(terminal: TuiTerminal, output: NodeJS.Writ
     if (action === 2 || action < 0) continue;
     if (action === 0) {
       const plan = await previewSpecialistAgent(root, entry.id, agent, { catalog: specialistAgentCatalog });
-      output.write(`\n  Preview: ${plan.action}\n  Target: ${plan.targetPath}\n`);
-      if (plan.reason) output.write(`  Reason: ${plan.reason}\n`);
+      terminal.report(entry.name.toUpperCase(), [
+        `Preview: ${plan.action}`,
+        `Target: ${shortenPath(plan.targetPath)}`,
+        ...(plan.reason ? [`Reason: ${plan.reason}`] : [])
+      ]);
       if (plan.action === "install" || plan.action === "update") {
-        const confirmation = (await terminal.question("\n  Apply this global change? Type yes to confirm: ")).trim().toLowerCase();
-        if (confirmation === "yes") {
+        if (await terminal.confirm("Apply this global change?")) {
           const result = await installSpecialistAgent(root, entry.id, agent, { catalog: specialistAgentCatalog });
-          output.write(`\n  ${result.action}: ${entry.name} [${agent}]\n  Target: ${result.targetPath}\n`);
-        } else output.write("\n  No files changed.\n");
+          terminal.report(entry.name.toUpperCase(), [
+            `${result.action}: ${entry.name} [${agent}]`,
+            `Target: ${shortenPath(result.targetPath)}`
+          ]);
+        } else terminal.report(entry.name.toUpperCase(), ["No files changed."]);
       }
     } else if (action === 1) {
       const current = statuses.find((item) => item.id === entry.id && item.agent === agent);
-      output.write(`\n  Removal preview: ${entry.name} [${agent}] — ${current?.state ?? "unknown"}\n`);
-      if (current?.state === "absent") output.write("  Nothing to remove.\n");
-      else if (current?.state !== "current" && current?.state !== "update-available") {
-        output.write("  Refusing removal because Nix cannot verify ownership and installed content.\n");
-      }
-      else {
-        const confirmation = (await terminal.question("\n  Remove only the verified Nix-managed agent? Type yes to confirm: ")).trim().toLowerCase();
-        if (confirmation === "yes") {
+      terminal.report(entry.name.toUpperCase(), [
+        `Removal preview: ${entry.name} [${agent}] — ${current?.state ?? "unknown"}`,
+        ...(current?.state === "absent"
+          ? ["Nothing to remove."]
+          : current?.state !== "current" && current?.state !== "update-available"
+            ? ["Refusing removal because Nix cannot verify ownership and installed content."]
+            : [])
+      ]);
+      if (current?.state === "current" || current?.state === "update-available") {
+        if (await terminal.confirm("Remove only the verified Nix-managed agent?")) {
           const result = await removeSpecialistAgent(root, entry.id, agent, { catalog: specialistAgentCatalog });
-          output.write(`\n  ${result.action}: ${entry.name} [${agent}]\n`);
-        } else output.write("\n  No files changed.\n");
+          terminal.report(entry.name.toUpperCase(), [`${result.action}: ${entry.name} [${agent}]`]);
+        } else terminal.report(entry.name.toUpperCase(), ["No files changed."]);
       }
     }
-    await terminal.question("\n  Press Enter to return to the specialist list.");
+    await terminal.question("");
   }
 }
 
@@ -661,34 +801,44 @@ async function manageMcpIntegrations(terminal: TuiTerminal, output: NodeJS.Writa
     if (action === 2 || action < 0) continue;
     if (action === 0) {
       const plan = await previewMcp(root, entry.id, agent);
-      output.write(`\n  Preview: ${plan.action}\n  Target: ${plan.targetPath}\n  Network: ${plan.networkAccess}\n  Credentials: ${plan.credentials.required ? plan.credentials.envVars.join(", ") : "none required"}\n`);
-      output.write(`  Note: ${plan.credentials.note}\n`);
-      if (plan.prerequisites.missing.length > 0) output.write(`  Missing prerequisites: ${plan.prerequisites.missing.join("; ")}\n`);
-      if (plan.reason) output.write(`  Reason: ${plan.reason}\n`);
+      const panelTitle = entry.name.toUpperCase();
+      terminal.report(panelTitle, [
+        `Preview: ${plan.action}`,
+        `Target: ${shortenPath(plan.targetPath)}`,
+        `Network: ${plan.networkAccess}`,
+        `Credentials: ${plan.credentials.required ? plan.credentials.envVars.join(", ") : "none required"}`,
+        `Note: ${plan.credentials.note}`,
+        ...(plan.prerequisites.missing.length > 0 ? [`Missing prerequisites: ${plan.prerequisites.missing.join("; ")}`] : []),
+        ...(plan.reason ? [`Reason: ${plan.reason}`] : []),
+        ...(!plan.prerequisites.satisfied ? ["Installation is unavailable until the listed prerequisites are present."] : [])
+      ]);
       if (!plan.prerequisites.satisfied) {
-        output.write("  Installation is unavailable until the listed prerequisites are present.\n");
+        // Nothing to apply: the missing prerequisites make the install impossible.
       } else if (plan.action === "install" || plan.action === "update") {
-        const confirmation = (await terminal.question("\n  Apply this global change? Type yes to confirm: ")).trim().toLowerCase();
-        if (confirmation === "yes") {
+        if (await terminal.confirm("Apply this global change?")) {
           const result = await installMcp(root, entry.id, agent);
-          output.write(`\n  ${result.action}: ${entry.name} [${agent}]\n`);
-        } else output.write("\n  No files changed.\n");
+          terminal.report(panelTitle, [`${result.action}: ${entry.name} [${agent}]`]);
+        } else terminal.report(panelTitle, ["No files changed."]);
       }
     } else if (action === 1) {
-      output.write(`\n  Removal preview: ${entry.name} [${agent}] — ${status?.state ?? "unknown"}\n  ${entry.removal}\n`);
-      if (!status || status.state === "absent") output.write("  Nothing to remove.\n");
-      else if (status.state !== "current" && status.state !== "update-available") {
-        output.write("  Refusing removal because Nix cannot verify ownership and installed content.\n");
-      }
-      else {
-        const confirmation = (await terminal.question("\n  Remove only the verified Nix-managed integration? Type yes to confirm: ")).trim().toLowerCase();
-        if (confirmation === "yes") {
+      const panelTitle = entry.name.toUpperCase();
+      terminal.report(panelTitle, [
+        `Removal preview: ${entry.name} [${agent}] — ${status?.state ?? "unknown"}`,
+        entry.removal,
+        ...(!status || status.state === "absent"
+          ? ["Nothing to remove."]
+          : status.state !== "current" && status.state !== "update-available"
+            ? ["Refusing removal because Nix cannot verify ownership and installed content."]
+            : [])
+      ]);
+      if (status && (status.state === "current" || status.state === "update-available")) {
+        if (await terminal.confirm("Remove only the verified Nix-managed integration?")) {
           const result = await removeMcp(root, entry.id, agent);
-          output.write(`\n  ${result.action}: ${entry.name} [${agent}]\n`);
-        } else output.write("\n  No files changed.\n");
+          terminal.report(panelTitle, [`${result.action}: ${entry.name} [${agent}]`]);
+        } else terminal.report(panelTitle, ["No files changed."]);
       }
     }
-    await terminal.question("\n  Press Enter to return to the MCP list.");
+    await terminal.question("");
   }
 }
 
@@ -720,12 +870,13 @@ async function manageProjectSkills(terminal: TuiTerminal, output: NodeJS.Writabl
       .filter((status) => status.id === entry.id)
       .map((status) => `${status.agent}: ${status.state}`)
       .join(", ");
-    output.write(`\n  ${entry.name}\n`);
-    output.write(`  Source: ${describeSkillSource(entry.source)}\n`);
-    output.write(`  License: ${entry.license}; version: ${entry.version}\n`);
-    output.write(`  Compatible agents: ${entry.compatibleAgents.join(", ")}\n`);
-    output.write(`  Dependencies: ${entry.dependencies.length === 0 ? "none" : entry.dependencies.map((item) => item.description).join("; ")}\n`);
-    output.write(`  Status: ${current}\n\n`);
+    terminal.report(entry.name.toUpperCase(), [
+      `Source: ${describeSkillSource(entry.source)}`,
+      `License: ${entry.license}; version: ${entry.version}`,
+      `Compatible agents: ${entry.compatibleAgents.join(", ")}`,
+      `Dependencies: ${entry.dependencies.length === 0 ? "none" : entry.dependencies.map((item) => item.description).join("; ")}`,
+      `Status: ${current}`
+    ]);
     const action = await terminal.select("Choose a skill action", [
       "Preview/install for OpenCode",
       "Preview/install for Codex",
@@ -743,38 +894,41 @@ async function manageProjectSkills(terminal: TuiTerminal, output: NodeJS.Writabl
 
     if (action === 0 || action === 1) {
       const plan = await previewSkill(projectRoot, entry.id, agent);
-      output.write(`\n  Preview: ${plan.action}\n  Target: ${plan.targetPath}\n`);
-      if (plan.missing.length > 0) output.write(`  Missing dependencies: ${plan.missing.join("; ")}\n`);
-      if (plan.reason) output.write(`  Reason: ${plan.reason}\n`);
+      const panelTitle = entry.name.toUpperCase();
+      terminal.report(panelTitle, [
+        `Preview: ${plan.action}`,
+        `Target: ${shortenPath(plan.targetPath)}`,
+        ...(plan.missing.length > 0 ? [`Blocking dependencies: ${plan.missing.join("; ")}`] : []),
+        ...(plan.reason ? [`Reason: ${plan.reason}`] : []),
+        ...(plan.action === "install" || plan.action === "update" ? [] : [])
+      ]);
       if ((plan.action === "install" || plan.action === "update") && plan.missing.length > 0) {
-        output.write("  Installation is unavailable until the required dependencies are present.\n");
+        terminal.report(panelTitle, ["Installation is unavailable until the required dependencies are present."]);
       } else if (plan.action === "install" || plan.action === "update") {
-        const confirmation = (await terminal.question("\n  Apply this global change? Type yes to confirm: ")).trim().toLowerCase();
-        if (confirmation === "yes") {
+        if (await terminal.confirm("Apply this global change?")) {
           try {
             const result = await installSkill(projectRoot, entry.id, agent);
-            output.write(`\n  ${result.action}: ${entry.name} [${agent}]\n  Files: ${result.fileCount}\n`);
+            terminal.report(panelTitle, [`${result.action}: ${entry.name} [${agent}]`, `Files: ${result.fileCount}`]);
           } catch (error) {
-            output.write(`\n  ${error instanceof Error ? error.message : String(error)}\n`);
+            terminal.report(panelTitle, [error instanceof Error ? error.message : String(error)]);
           }
         } else {
-          output.write("\n  No files changed.\n");
+          terminal.report(panelTitle, ["No files changed."]);
         }
       }
     } else {
-      const confirmation = (await terminal.question("\n  Remove this Nix-managed skill? Type yes to confirm: ")).trim().toLowerCase();
-      if (confirmation === "yes") {
+      if (await terminal.confirm("Remove this Nix-managed skill?")) {
         try {
           await removeSkill(projectRoot, entry.id, agent);
-          output.write(`\n  removed: ${entry.name} [${agent}]\n`);
+          terminal.report(entry.name.toUpperCase(), [`removed: ${entry.name} [${agent}]`]);
         } catch (error) {
-          output.write(`\n  ${error instanceof Error ? error.message : String(error)}\n`);
+          terminal.report(entry.name.toUpperCase(), [error instanceof Error ? error.message : String(error)]);
         }
       } else {
-        output.write("\n  No files changed.\n");
+        terminal.report(entry.name.toUpperCase(), ["No files changed."]);
       }
     }
-    await terminal.question("\n  Press Enter to return to the skill list.");
+    await terminal.question("");
   }
 }
 
@@ -785,39 +939,44 @@ async function manageSecurityHooks(terminal: TuiTerminal, output: NodeJS.Writabl
   let back = false;
   while (!back) {
     const status = await installer.status(projectRoot);
-    output.write("\n  Global destructive-operation safeguards\n");
-    output.write(`  Codex: ${status.codexEnabled ? "enabled" : "disabled"}\n`);
-    output.write(`  OpenCode V1/V2: ${status.opencodeEnabled ? "enabled" : "disabled"}\n`);
-    output.write("  Shells: PowerShell, cmd.exe, Git Bash/MSYS\n");
+    terminal.report("GLOBAL SECURITY HOOKS", [
+      "Global destructive-operation safeguards",
+      `Codex: ${status.codexEnabled ? "enabled" : "disabled"}`,
+      `OpenCode V1/V2: ${status.opencodeEnabled ? "enabled" : "disabled"}`,
+      "Shells: PowerShell, cmd.exe, Git Bash/MSYS"
+    ]);
     const action = await terminal.select("Choose an action", ["Preview and enable", "Disable", "Back"], "GLOBAL SECURITY HOOKS");
     if (action === 2 || action < 0) { back = true; continue; }
     if (action === 0) {
       const plan = await installer.preview(projectRoot);
-      output.write(`\n  Preview: ${plan.action}\n  Codex: ${plan.targets.codex}\n  OpenCode: ${plan.targets.opencode}\n`);
-      if (plan.reason) output.write(`  Reason: ${plan.reason}\n`);
+      terminal.report("SECURITY HOOKS", [
+        `Preview: ${plan.action}`,
+        `Codex: ${shortenPath(plan.targets.codex)}`,
+        `OpenCode: ${shortenPath(plan.targets.opencode)}`,
+        ...(plan.reason ? [`Reason: ${plan.reason}`] : [])
+      ]);
       if (plan.action === "conflict") {
-        await terminal.question("\n  Resolve the conflict before enabling. Press Enter to return.");
+        await terminal.question("");
         continue;
       }
       if (plan.action === "already-current") {
-        await terminal.question("\n  Security hooks are already installed. Press Enter to return.");
+        terminal.report("SECURITY HOOKS", ["Security hooks are already installed."]);
+        await terminal.question("");
         continue;
       }
-      const confirmation = (await terminal.question("\n  Install these global hooks? Type yes to confirm: ")).trim().toLowerCase();
-      if (confirmation === "yes") {
+      if (await terminal.confirm("Install these global hooks?")) {
         const result = await installer.install(projectRoot);
-        output.write(`\n  Security hooks ${result.action}.\n`);
-      } else output.write("\n  No files changed.\n");
-      await terminal.question("\n  Press Enter to return.");
+        terminal.report("SECURITY HOOKS", [`Security hooks ${result.action}.`]);
+      } else terminal.report("SECURITY HOOKS", ["No files changed."]);
+      await terminal.question("");
       continue;
     }
     if (action === 1) {
-      const confirmation = (await terminal.question("\n  Remove only Nix-owned global hooks and preserve user-owned entries? Type yes to confirm: ")).trim().toLowerCase();
-      if (confirmation === "yes") {
+      if (await terminal.confirm("Remove only Nix-owned global hooks and preserve user-owned entries?")) {
         await installer.uninstall(projectRoot);
-        output.write("\n  Nix-owned security hooks removed.\n");
-      } else output.write("\n  No files changed.\n");
-      await terminal.question("\n  Press Enter to return.");
+        terminal.report("SECURITY HOOKS", ["Nix-owned security hooks removed."]);
+      } else terminal.report("SECURITY HOOKS", ["No files changed."]);
+      await terminal.question("");
     }
   }
 }

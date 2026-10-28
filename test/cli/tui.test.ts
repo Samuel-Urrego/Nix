@@ -7,6 +7,9 @@ import test from "node:test";
 
 import { runTui } from "../../src/cli/tui.js";
 import { getStackStatePath } from "../../src/core/config/stack-state.js";
+import { skillCatalog } from "../../src/core/skills/skill-catalog.js";
+
+const bundledSkillsOnly = { catalog: skillCatalog.filter((entry) => entry.source.kind === "bundled") };
 
 test("TUI opens with a small framed keyboard menu instead of numbered actions", async () => {
   const output = new PassThrough();
@@ -134,7 +137,7 @@ test("TUI previews and installs Nix commands for the selected agent target", asy
     await runTui({ output, ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; } });
     const installed = await readFile(path.join(root, "config", "opencode", "commands", "araxys.md"), "utf8");
     assert.match(installed, /consuming application/i);
-    assert.match(transcript, /Installation preview \[opencode\]/i);
+    assert.match(transcript, /\[opencode\] Installation preview/i);
     assert.match(transcript, /Unmanaged files are preserved/);
   } finally {
     output.destroy();
@@ -291,7 +294,7 @@ test("guided install detects targets and only writes the selected application", 
     try {
       await writeDetectedTargets(environment);
       const { output, transcript } = scriptedOutput();
-      const answers = ["1", "1", "8", "yes", "", "4"];
+      const answers = ["1", "2", "1", "8", "1", "", "4"];
       await runTui({ output, ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; } });
 
       const command = await readFile(path.join(root, "config", "opencode", "commands", "araxys.md"), "utf8");
@@ -303,7 +306,7 @@ test("guided install detects targets and only writes the selected application", 
       const text = transcript();
       assert.match(text, /OpenCode: detected/);
       assert.match(text, /Codex: detected/);
-      assert.match(text, /Global installation preview/);
+      assert.match(text, /╭ INSTALL PREVIEW/);
       assert.match(text, /Apply these global changes\?/);
       assert.match(text, /Installed: \d+/);
     } finally {
@@ -317,11 +320,44 @@ test("guided install writes nothing when the confirmation is declined", async ()
     try {
       await writeDetectedTargets(environment);
       const declined = scriptedOutput();
-      const answers = ["1", "1", "none", "no", "", "4"];
+      const answers = ["1", "2", "1", "8", "2", "", "4"];
       await runTui({ output: declined.output, ask: async (prompt) => { declined.output.write(prompt); return answers.shift() ?? ""; } });
       assert.match(declined.transcript(), /No files changed\./);
       await assert.rejects(readFile(path.join(root, "config", "opencode", "commands", "araxys.md"), "utf8"), { code: "ENOENT" });
       await assert.rejects(readFile(path.join(root, "config", "opencode", "skills", "python-fastapi", "SKILL.md"), "utf8"), { code: "ENOENT" });
+    } finally {
+      await restore();
+    }
+  });
+});
+
+test("install everything installs every target and skill in one confirmed step", async () => {
+  await withTuiSandbox(async ({ root, environment, restore }) => {
+    try {
+      await writeDetectedTargets(environment);
+      const { output, transcript } = scriptedOutput();
+      const answers = ["1", "1", "1", "", "4"];
+      await runTui({
+        output,
+        ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; },
+        skillOptions: bundledSkillsOnly
+      });
+
+      const text = transcript();
+      for (const title of ["TARGET DETECTION", "INSTALL MODE", "INSTALL PREVIEW", "INSTALLING", "INSTALL COMPLETE"]) {
+        assert.ok(text.includes(`╭ ${title}`), `${title} is rendered inside a frame`);
+      }
+      assert.match(text, /█/);
+      assert.doesNotMatch(text, /Type yes to confirm/);
+      assert.doesNotMatch(text, /Failure:/, "one-step installation must not report failures");
+      for (const id of ["python-fastapi", "araxys-integration"]) {
+        const bundled = await readFile(path.resolve("skills", id, "SKILL.md"), "utf8");
+        const opencode = await readFile(path.join(root, "config", "opencode", "skills", id, "SKILL.md"), "utf8");
+        const codex = await readFile(path.join(root, "home", ".agents", "skills", id, "SKILL.md"), "utf8");
+        assert.equal(opencode, bundled, `${id} installs its real content for OpenCode`);
+        assert.equal(codex, bundled, `${id} installs its real content for Codex`);
+      }
+      assert.match(text, /Installed: \d+/);
     } finally {
       await restore();
     }
@@ -348,15 +384,11 @@ test("in-TUI update shows current and target versions, then reports the upgrade 
   await withTuiSandbox(async ({ restore }) => {
     try {
       const { output, transcript } = scriptedOutput();
-      const answers = ["2", "", "2", "", "4"];
+      const answers = ["2", "1", "", "2", "1", "", "4"];
       const plans: string[] = [];
       await runTui({
         output,
-        ask: async (prompt) => {
-          output.write(prompt);
-          if (prompt.includes("Update the globally installed AI-STACK")) return "yes";
-          return answers.shift() ?? "";
-        },
+        ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; },
         latestVersion: async () => "9.9.9",
         upgrade: async (plan) => {
           plans.push(plan.commandLine);
@@ -380,7 +412,7 @@ test("in-TUI update reports an unresolved target instead of guessing a version",
   await withTuiSandbox(async ({ restore }) => {
     try {
       const { output, transcript } = scriptedOutput();
-      const answers = ["2", "no", "", "4"];
+      const answers = ["2", "2", "", "4"];
       await runTui({
         output,
         ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; },
@@ -401,7 +433,7 @@ test("the wolf banner appears once on the first home screen", async () => {
   await withTuiSandbox(async ({ environment, restore }) => {    try {
       await writeDetectedTargets(environment);
       const { output, transcript } = scriptedOutput();
-      const answers = ["1", "1", "none", "no", "", "4"];
+      const answers = ["1", "1", "2", "", "4"];
       await runTui({ output, ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; } });
 
       const text = transcript();
@@ -464,6 +496,8 @@ test("real keyboard selection drives the guided install end to end", async () =>
 
       await expect("What would you like to do?");
       input.write("\r");
+      await expect("How do you want to install?");
+      input.write("\u001b[B\r");
       await expect("Where should Nix install?");
       input.write("\r");
       await expect("Which skills should Nix install?");
@@ -474,7 +508,7 @@ test("real keyboard selection drives the guided install end to end", async () =>
       await expect("› [x] Python and FastAPI");
       input.write("\r");
       await expect("Apply these global changes?");
-      input.write("yes\r");
+      input.write("\u001b[A\r");
       await expect("These changes are global");
       input.write("\r");
       await expect("What would you like to do?");

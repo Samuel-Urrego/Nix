@@ -79,6 +79,35 @@ Risk: item 5 — this changes the interactive installation flow.
 
 Checks: keyboard unit tests for filtering, toggle-all, in-place redraw, and Next; the real-keyboard end-to-end test installs only the filtered skill.
 
+### S7 — One-step install, framed panels, yes/no confirmation, and a progress bar
+
+User request: “todo debe salir dentor del recuadro bb y bonito y haz que el paso en el que se instala pida la confirmacion tambien con una opcion de si o no, y ponle barra de descarga. quiero que todo se pueda instalar de una bb arregla esas dependencias de las skills externas”.
+
+Acceptance:
+- Every screen of the install, update, and advanced-management flows is rendered inside a framed panel; no report is printed as bare text outside a frame.
+- Long values wrap inside the frame without breaking the border, and home-relative paths are shown instead of full absolute paths.
+- The install flow starts with an `INSTALL MODE` choice: `Install everything (recommended)` installs every detected target and every compatible skill after a single confirmation, and `Choose targets and skills` keeps the guided wizard.
+- The installation step asks for confirmation with a selectable `Yes/No` (default `No`), never a typed `yes`.
+- Installation shows a framed progress bar with `N/M steps · P%` and finishes in an `INSTALL COMPLETE` panel reporting installed, preserved, and failed counts.
+- A Codex command wrapper never shares a directory with an installed skill of the same id, so one-step installation cannot fail on that collision; a wrapper left by an older build at the skill path is migrated only when Nix provably owns the whole directory.
+
+Risk: item 5 — this changes the interactive installation flow; item 3 for the Codex wrapper directory rename, which changes a path Nix already writes.
+
+Checks: scripted TUI tests for the framed panels, the progress bar, the one-step install, and the declined confirmation writing nothing; a real-keyboard E2E run; command-service tests for the wrapper migration and for never deleting an unmanaged directory.
+
+### S8 — Runtime tool dependencies never block skill installation
+
+User request: “arregla esas dependencias de las skills externas”.
+
+Acceptance:
+- Copying a skill's markdown never fails because a runtime tool such as `ffmpeg`, `k6`, `node`, or a browser is missing; every catalog dependency is advisory.
+- The preview and the final report list the runtime tools an installed skill uses, so the user knows what to install before using it.
+- Nix never installs system binaries on its own.
+
+Risk: none — this only removes an install-time blocker and adds reporting; no new process is executed.
+
+Checks: catalog test asserting no git skill has a blocking dependency; installer test previewing `brag` on a machine without FFmpeg.
+
 ## Tasks
 
 | ID | Specs | Route | Status | Commit / Evidence |
@@ -89,6 +118,8 @@ Checks: keyboard unit tests for filtering, toggle-all, in-place redraw, and Next
 | T4 | S4 | Inline | Done — in-TUI update reusing `createUpgradePlan`/`spawnUpgrade`, shows current/target version, confirms first, reports exit code | Commit `feat(tui): add in-TUI update`; RED/GREEN update tests |
 | T5 | S5 | Inline | Done — feature branch exists; local Gentle AI is a Go Bubble Tea/Lipgloss reference, not a source to port | branch `codex/tui-redesign` |
 | T6 | S6 | Inline | Done — in-place redraw replaces full-screen clears, multi-select gained search, `a` toggle-all, `Next →` row, and default-checked options | RED/GREEN `tui-keyboard` tests; E2E installs only the filtered skill |
+| T7 | S7 | Inline | Done — `INSTALL MODE`, one-step install, framed panels everywhere, `Yes/No` confirmation, framed progress bar, namespaced Codex command wrappers | RED/GREEN `tui-keyboard` + `tui` tests; `170 passed`; visual transcript with `Failed: 0` |
+| T8 | S8 | Inline | Done — catalog runtime tools are advisory and reported as guidance instead of blocking installation | RED/GREEN `skill-catalog` + `skill-installer` tests |
 
 ## Log
 
@@ -109,3 +140,5 @@ Checks: keyboard unit tests for filtering, toggle-all, in-place redraw, and Next
 - L15 — Closed the L5 runtime-validation gap as far as automation allows: an end-to-end test drives the real `selectWithKeyboard`/`multiSelectWithKeyboard` raw-key-driven path over a fake TTY (arrows, `enter`, `space`, typed `yes`) through home → detection → targets → skills → preview → apply → quit, asserting both targets receive commands and the OpenCode/Codex files on disk. The earlier scripted tests never exercised the raw-mode selector end to end. Also removed a dead `getCodexUserSkillsDirectory` import from `tui.ts`. Suite: 157 passed, 0 failed; typecheck, build, and `git diff --check` clean. A human eye check in a real terminal is still the last mile and remains unautomated.
 - L16 — User reported the wolf art was lost and re-pasted it. Byte comparison showed the `header` constant in `tui.ts` already matched it exactly (18 lines × 29 columns); the real defect was that the art was printed only in the non-interactive branch, so the interactive TUI never showed it. `selectWithKeyboard` now accepts a `banner` and the home screen passes the wolf plus a subtitle on its first render only; the banner is skipped below 34 terminal columns so it cannot wrap into noise. Tests cover: banner precedes the frame, wolf appears exactly once per session, and narrow terminals render without it. Suite: 160 passed, 0 failed.
 - L17 — User request: “la pantalla titila cuando se cambia de opcion y haz que las opciones sean seleccionable, tengan buscador, que haya un boton de next, y que se tome lo que el usuario seleccion y todo debe estar default marcado para que el usuario solo quite lo que no quiere”. Root cause of the flicker: every keypress wrote `ESC[2J` and repainted the whole screen. `InPlaceScreen` now moves the cursor up over its own rows and rewrites them with `ESC[2K`, shrinking back when a filter narrows the list, so no full-screen clear remains in either selector. `multiSelectWithKeyboard` gained a print-to-filter `Search:` line, Space toggling, `a` toggle-all over the visible rows, a visible `Next →` row with a selected/total counter, and Enter as the Next action; Esc cancels and writes nothing. The guided installer now passes every skill index as `initialSelected`, so everything starts checked and the user only unchecks. Tests: three new keyboard tests (filter plus Next counter, toggle-all, no `ESC[2J` on redraw) and the real-keyboard E2E now clears all, filters `python`, checks one skill, and asserts only that skill landed. Suite: 163 passed, 0 failed; typecheck, build, and `git diff --check` clean.
+- L18 — User request: “todo debe salir dentor del recuadro bb y bonito y haz que el paso en el que se instala pida la confirmacion tambien con una opcion de si o no, y ponle barra de descarga. quiero que todo se pueda instalar de una bb arregla esas dependencias de las skills externas”. Delivered as S7+S8/T7+T8: `runGuidedInstall` now renders `TARGET DETECTION`, `INSTALL MODE`, `INSTALL PREVIEW`, `CONFIRM`, `INSTALLING`, and `INSTALL COMPLETE` as frames; the mode select makes one-step installation the default; confirmation and every advanced-management confirmation became a `Yes/No` selector defaulting to `No`; `createProgress` draws an in-place framed bar; `shortenPath` keeps wrapped paths short. Only three bare writes remain in `tui.ts` (banner, non-interactive branch, one flow-entry clear).
+- L19 — One-step installation exposed a real collision: `/araxys` (`codexSkillId: "araxys-integration"`) and `/security-audit` wrote their Codex wrappers into the same directories as the external skills of those ids, so the skill install failed with "An existing skill directory with this id is not managed by Nix." Fixed by namespacing the wrappers (`nix-command-araxys`, `nix-command-security-audit`) and keeping the frontmatter `name` as the command id so Codex never lists two skills with the same name. A stale wrapper from an older build is removed only when the directory contains exactly one `SKILL.md` carrying that command's ownership marker; anything else is preserved. The previous one-step test only asserted the file existed, which the command wrapper alone satisfied — it now compares the installed content with the bundled skill and asserts no `Failure:` line. Suite: 170 passed, 0 failed; typecheck clean; visual transcript ends with `Installed: 16 files · Preserved: 0 · Failed: 0`.

@@ -10,6 +10,11 @@ function installPaths(id: string) {
 /**
  * Requested skills with truthful upstream or bundled-package provenance.
  * Git refs are pinned commit SHAs; advance them only through a reviewed catalog change.
+ *
+ * Dependencies describe the tools a skill uses at runtime, not tools needed to copy
+ * its markdown. None of them may be `required: true`, otherwise a missing ffmpeg or
+ * k6 would block installation of an instruction-only skill. Optional tools are
+ * reported to the user by the installer instead of blocking the install.
  */
 export const skillCatalog: ReadonlyArray<SkillCatalogEntry> = [
   {
@@ -26,9 +31,9 @@ export const skillCatalog: ReadonlyArray<SkillCatalogEntry> = [
     license: "MIT",
     version: "0.4.0",
     dependencies: [
-      { kind: "runtime", name: "node", description: "Node.js 22 or newer", required: true },
-      { kind: "command", name: "ffmpeg", description: "FFmpeg on PATH for video rendering", required: true },
-      { kind: "command", name: "npx", description: "npx for the Hyperframes CLI", required: true },
+      { kind: "runtime", name: "node", description: "Node.js 22 or newer", required: false },
+      { kind: "command", name: "ffmpeg", description: "FFmpeg on PATH for video rendering", required: false },
+      { kind: "command", name: "npx", description: "npx for the Hyperframes CLI", required: false },
       { kind: "command", name: "uv", description: "uv for custom music cue analysis", required: false }
     ],
     compatibleAgents: ["opencode", "codex"],
@@ -50,7 +55,7 @@ export const skillCatalog: ReadonlyArray<SkillCatalogEntry> = [
     license: "Apache-2.0",
     version: "main@cc33318",
     dependencies: [
-      { kind: "command", name: "k6", description: "k6 v2.0 or newer on PATH", required: true }
+      { kind: "command", name: "k6", description: "k6 v2.0 or newer on PATH", required: false }
     ],
     compatibleAgents: ["opencode", "codex"],
     installPaths: installPaths("grafana-k6"),
@@ -71,7 +76,7 @@ export const skillCatalog: ReadonlyArray<SkillCatalogEntry> = [
     license: "MIT",
     version: "main@c1c8a8c",
     dependencies: [
-      { kind: "runtime", name: "node", description: "Node.js for the findings and coverage validators", required: true }
+      { kind: "runtime", name: "node", description: "Node.js for the findings and coverage validators", required: false }
     ],
     compatibleAgents: ["opencode", "codex"],
     installPaths: installPaths("security-audit"),
@@ -111,8 +116,8 @@ export const skillCatalog: ReadonlyArray<SkillCatalogEntry> = [
     license: "MIT",
     version: "2.0.0-experimental",
     dependencies: [
-      { kind: "runtime", name: "node", description: "Node.js 22 or newer", required: true },
-      { kind: "runtime", name: "chrome", description: "Chrome, Edge, or Chromium for the browser check", required: true },
+      { kind: "runtime", name: "node", description: "Node.js 22 or newer", required: false },
+      { kind: "runtime", name: "chrome", description: "Chrome, Edge, or Chromium for the browser check", required: false },
       { kind: "network", name: "image-search", description: "Network access to find reference images", required: false }
     ],
     compatibleAgents: ["opencode", "codex"],
@@ -134,8 +139,8 @@ export const skillCatalog: ReadonlyArray<SkillCatalogEntry> = [
     license: "MIT",
     version: "6.8.0",
     dependencies: [
-      { kind: "runtime", name: "node", description: "Node.js 22.23.4+, 24.22.1+, or 26.12.1+", required: true },
-      { kind: "command", name: "npm", description: "npm to install or run the REA MCP package", required: true }
+      { kind: "runtime", name: "node", description: "Node.js 22.23.4+, 24.22.1+, or 26.12.1+", required: false },
+      { kind: "command", name: "npm", description: "npm to install or run the REA MCP package", required: false }
     ],
     compatibleAgents: ["opencode", "codex"],
     installPaths: installPaths("rea"),
