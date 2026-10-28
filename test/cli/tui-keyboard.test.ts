@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 
-import { buildFrame, createProgress, multiSelectWithKeyboard, selectWithKeyboard, writeFrame } from "../../src/cli/tui-keyboard.js";
+import { buildFrame, createProgress, multiSelectWithKeyboard, Screen, selectWithKeyboard, writeFrame } from "../../src/cli/tui-keyboard.js";
+import { layoutScreen } from "../../src/cli/tui-screen.js";
 
 /** Fails loudly instead of hanging the suite when a selector never answers. */
 async function withDeadline<T>(pending: Promise<T>, message: string): Promise<T> {
@@ -152,6 +153,44 @@ test("frame rows never fill the last terminal column", () => {
     frame.every((row) => row.length < columns),
     `a row exactly ${columns} wide auto-wraps in the terminal and every in-place redraw after it lands one row off (widest: ${widest})`
   );
+});
+
+test("the viewport paints exactly the screen height with the key hint on the last row", () => {
+  const output = new PassThrough() as PassThrough & { columns: number; rows: number };
+  output.columns = 80;
+  output.rows = 12;
+  let transcript = "";
+  output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
+
+  const screen = new Screen(output as unknown as NodeJS.WriteStream);
+  const layout = layoutScreen({
+    title: "CONFIRM",
+    lines: ["Apply these global changes?", "", "› Yes, install", "  No, cancel"],
+    scroll: 0,
+    columns: screen.columns,
+    rows: screen.rows,
+    footer: "↑↓ Navigate · Enter Select · Esc Back"
+  });
+  screen.paint(layout.lines);
+
+  const painted = transcript.replace(/^\u001b\[H/, "").split("\r\n");
+  assert.equal(painted.length, 12, "the viewport always fills the screen exactly");
+  assert.match(painted[0] ?? "", /^╭ CONFIRM/);
+  assert.match(painted[10] ?? "", /^╰─+╯$/, "the frame closes above the hint");
+  assert.equal(painted[11]?.trimEnd(), "↑↓ Navigate · Enter Select · Esc Back");
+});
+
+test("content taller than the viewport scrolls inside its own frame", () => {
+  const lines = Array.from({ length: 100 }, (_value, index) => `line ${index}`);
+  const first = layoutScreen({ title: "REPORT", lines, scroll: 0, columns: 80, rows: 12, footer: "hint" });
+  const scrolled = layoutScreen({ title: "REPORT", lines, scroll: 50, columns: 80, rows: 12, footer: "hint" });
+
+  assert.equal(first.total, 100);
+  assert.equal(first.bodyRows, 9);
+  assert.equal(first.lines.length, 12, "the frame never grows past the viewport");
+  assert.match(first.lines[1] ?? "", /line 0/);
+  assert.match(scrolled.lines[1] ?? "", /line 50/, "scrolling moves the window, not the screen");
+  assert.equal(scrolled.scroll, 50);
 });
 
 test("progress reporter fills a framed bar as steps complete", () => {
@@ -317,7 +356,7 @@ test("selector renders its banner above the frame", async () => {
 
     const bannerIndex = transcript.indexOf("⠀⣀⡀⠀");
     assert.ok(bannerIndex >= 0, "banner is rendered");
-    assert.ok(bannerIndex < transcript.indexOf("╭ NIX AI-STACK"), "banner precedes the frame");
+    assert.ok(bannerIndex < transcript.indexOf("Choose"), "banner precedes the prompt inside the viewport");
   } finally {
     input.destroy();
     output.destroy();
@@ -429,7 +468,7 @@ test("redrawing a selection does not clear the screen again", async () => {
     await pendingSelection;
 
     assert.doesNotMatch(transcript, /\u001b\[2J/, "no full-screen clear is used");
-    assert.match(transcript, /\u001b\[\d+A/, "rows are redrawn in place");
+    assert.equal((transcript.match(/\u001b\[H/g) ?? []).length, 3, "every key repaints the whole viewport in place");
     assert.match(transcript, /› One/, "first frame highlights the first row");
     assert.match(transcript, /› One[\s\S]*› Two/, "later frames highlight the moved row");
   } finally {

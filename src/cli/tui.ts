@@ -21,7 +21,8 @@ import type { SkillAgent, SkillCatalogEntry } from "../core/skills/skill-contrac
 import { getSkillStatus, installSkill, previewSkill, removeSkill, type SkillInstallerOptions, type SkillPlan } from "../core/skills/skill-installer.js";
 import { createUpgradePlan, resolveLatestPublishedVersion, spawnUpgrade, type LatestVersionResolver, type UpgradeRunner } from "../core/system/npm-upgrade.js";
 import { projectMetadata } from "../core/system/project-metadata.js";
-import { createProgress, multiSelectWithKeyboard, selectWithKeyboard, writeFrame } from "./tui-keyboard.js";
+import { createProgress, multiSelectWithKeyboard, Screen, selectWithKeyboard, viewWithKeyboard, waitForKeyboard, writeFrame, type ProgressReporter } from "./tui-keyboard.js";
+import { layoutScreen } from "./tui-screen.js";
 
 export interface TuiOptions {
   readonly input?: NodeJS.ReadableStream;
@@ -39,6 +40,12 @@ interface TuiTerminal {
   question(prompt: string): Promise<string>;
   select(prompt: string, choices: readonly string[], title?: string, banner?: readonly string[], initialIndex?: number): Promise<number>;
   multiSelect(prompt: string, choices: readonly string[], title: string, initialSelected?: readonly number[]): Promise<readonly number[] | undefined>;
+  /** Full-screen, scrollable report. Enter or Escape continues. */
+  view(title: string, lines: readonly string[], footer?: string): Promise<void>;
+  /** Waits for one key without repainting, used after a progress finish. */
+  wait(): Promise<void>;
+  /** Progress bar that paints inside the shared viewport. */
+  progress(title: string, total: number): ProgressReporter;
   /** Yes/No selection. Defaults to No so an accidental Enter changes nothing. */
   confirm(prompt: string, yesLabel?: string, noLabel?: string): Promise<boolean>;
   /** Writes a framed report panel. */
@@ -85,10 +92,40 @@ function parseMultiAnswer(answer: string, choices: readonly string[]): readonly 
 
 function createTuiTerminal(options: TuiOptions, input: NodeJS.ReadableStream, output: NodeJS.WritableStream): TuiTerminal {
   let lineReader: Interface | undefined;
+  const screen = new Screen(output as NodeJS.WriteStream);
+  const scripted = Boolean(options.ask || options.select);
+  let screenOpened = false;
+  // Scripted runs assert plain frames, so the alternate buffer is only taken over
+  // when a real keyboard drives the interface.
+  const viewport = (): Screen => {
+    if (!screenOpened) {
+      screenOpened = true;
+      screen.open();
+    }
+    return screen;
+  };
   const question = (prompt: string): Promise<string> => {
     if (options.ask) return options.ask(prompt);
     lineReader ??= createInterface({ input, output });
     return lineReader.question(prompt);
+  };
+  const view = async (title: string, lines: readonly string[], footer?: string): Promise<void> => {
+    if (scripted) {
+      writeFrame(output, title, lines);
+      if (options.ask) await options.ask("");
+      else await options.select?.("", ["Continue"]);
+      return;
+    }
+    lineReader?.close();
+    lineReader = undefined;
+    await viewWithKeyboard({
+      input: input as NodeJS.ReadStream,
+      output,
+      title,
+      lines,
+      ...(footer ? { footer } : {}),
+      screen: viewport()
+    });
   };
   const select = async (prompt: string, choices: readonly string[], title = "NIX AI-STACK", banner?: readonly string[], initialIndex = 0): Promise<number> => {
     if (options.select) {
@@ -105,7 +142,16 @@ function createTuiTerminal(options: TuiOptions, input: NodeJS.ReadableStream, ou
     }
     lineReader?.close();
     lineReader = undefined;
-    return selectWithKeyboard({ input: input as NodeJS.ReadStream, output, prompt, choices, title, initialIndex, ...(banner ? { banner } : {}) });
+    return selectWithKeyboard({
+      input: input as NodeJS.ReadStream,
+      output,
+      prompt,
+      choices,
+      title,
+      initialIndex,
+      ...(banner ? { banner } : {}),
+      screen: viewport()
+    });
   };
   const multiSelect = async (
     prompt: string,
@@ -126,19 +172,64 @@ function createTuiTerminal(options: TuiOptions, input: NodeJS.ReadableStream, ou
         "Answer with comma-separated numbers, `all`, or `none`."
       ]);
       return parseMultiAnswer(await options.ask(prompt), choices);
-    }    lineReader?.close();
+    }
+    lineReader?.close();
     lineReader = undefined;
-    return multiSelectWithKeyboard({ input: input as NodeJS.ReadStream, output, prompt, choices, title, initialSelected });
+    return multiSelectWithKeyboard({
+      input: input as NodeJS.ReadStream,
+      output,
+      prompt,
+      choices,
+      title,
+      initialSelected,
+      screen: viewport()
+    });
+  };
+  const wait = async (): Promise<void> => {
+    if (options.ask) {
+      await options.ask("");
+      return;
+    }
+    if (options.select) {
+      await options.select("", ["Continue"]);
+      return;
+    }
+    await waitForKeyboard({ input: input as NodeJS.ReadStream, output });
   };
   return {
     question,
     select,
     multiSelect,
+    view,
+    wait,
     confirm: async (prompt, yesLabel = "Yes, apply", noLabel = "No, cancel") =>
       (await select(prompt, [yesLabel, noLabel], "CONFIRM", undefined, 1)) === 0,
-    report: (title, lines) => writeFrame(output, title, lines),
-    clear: () => { output.write("\u001b[2J\u001b[H"); },
-    close: () => lineReader?.close()
+    report: (title, lines) => {
+      if (scripted) {
+        writeFrame(output, title, lines);
+        return;
+      }
+      const target = viewport();
+      const layout = layoutScreen({
+        title,
+        lines,
+        scroll: 0,
+        columns: target.columns,
+        rows: target.rows,
+        footer: "Press Enter to continue"
+      });
+      target.paint(layout.lines);
+    },
+    progress: (title: string, total: number) => createProgress(output, title, total, scripted ? undefined : viewport()),
+    clear: () => {
+      // The viewport already replaces the whole screen on every paint.
+      if (!scripted && screenOpened) return;
+      output.write("\u001b[2J\u001b[H");
+    },
+    close: () => {
+      lineReader?.close();
+      if (screenOpened) screen.close();
+    }
   };
 }
 
@@ -231,7 +322,7 @@ export async function runTui(options: TuiOptions = {}): Promise<void> {
   }
 }
 
-/** Shows a framed report and waits for the user before continuing. */
+/** Shows a full-screen report and waits for the user before continuing. */
 async function pause(
   terminal: TuiTerminal,
   output: NodeJS.WritableStream,
@@ -239,9 +330,8 @@ async function pause(
   lines: readonly string[],
   footer = "Press Enter to return to the home screen."
 ): Promise<void> {
-  terminal.clear();
-  terminal.report(title, [...lines, "", footer]);
-  await terminal.question("");
+  void output;
+  await terminal.view(title, lines, footer);
 }
 
 async function runGuidedInstall(
@@ -261,7 +351,7 @@ async function runGuidedInstall(
     for (const evidence of detection.evidence) detectionLines.push(`  ${shortenPath(evidence)}`);
     if (!detection.detected) detectionLines.push("  No application configuration or CLI was found on this machine.");
   }
-  writeFrame(output, "TARGET DETECTION", detectionLines);
+  terminal.report("TARGET DETECTION", detectionLines);
 
   const available = detections.filter((detection) => detection.detected);
   if (available.length === 0) {
@@ -364,7 +454,7 @@ async function runGuidedInstall(
 
       const preview = await buildInstallPreview(root, statePath, targets, skills, skillOptions);
       terminal.clear();
-      writeFrame(output, "INSTALL PREVIEW", preview.lines);
+      terminal.report("INSTALL PREVIEW", preview.lines);
       const confirmed = await terminal.select("Apply these global changes?", ["Yes, install", "No, cancel"], "CONFIRM", undefined, 1);
       if (confirmed < 0) {
         step = modeIndex === 0 ? "mode" : "skills";
@@ -386,7 +476,7 @@ async function runGuidedInstall(
   const { effectiveState, skillPlans, agentPlans, runtimeNotes, targets } = selection;
 
   terminal.clear();
-  const progress = createProgress(output, "INSTALLING", targets.length + skillPlans.length + agentPlans.length);
+  const progress = terminal.progress("INSTALLING", targets.length + skillPlans.length + agentPlans.length);
   let completed = 0;
   let installedCount = 0;
   let skippedCount = 0;
@@ -397,8 +487,8 @@ async function runGuidedInstall(
     try {
       const result = await installAgentCommands(root, effectiveState, agent);
       installedCount += result.installed.length;
+      // A preserved unmanaged file is the installer refusing to overwrite, not a failure.
       skippedCount += result.skipped.length;
-      for (const skipped of result.skipped) failures.push(`preserved ${skipped.path} — ${skipped.reason}`);
     } catch (error) {
       failures.push(`commands [${agent}]: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -410,10 +500,12 @@ async function runGuidedInstall(
     const label = `Skill ${plan.id} [${agent}]`;
     progress.update(completed, label);
     try {
-      if (plan.action === "already-current" || plan.action === "conflict" || plan.action === "incompatible") {
+      if (plan.action === "already-current") {
+        // Nothing to do is not a failure: the user asked for it, and it is already there.
         skippedCount += 1;
-        if (plan.reason) failures.push(`${label}: ${plan.action} — ${plan.reason}`);
-        else failures.push(`${label}: ${plan.action}`);
+      } else if (plan.action === "conflict" || plan.action === "incompatible") {
+        skippedCount += 1;
+        failures.push(`${label}: ${plan.action}${plan.reason ? ` — ${plan.reason}` : ""}`);
       } else if (plan.missing.length > 0) {
         skippedCount += 1;
         failures.push(`${label}: skipped — missing dependencies`);
@@ -467,7 +559,7 @@ async function runGuidedInstall(
     "Press Enter to return to the home screen."
   ];
   progress.finish(report, "INSTALL COMPLETE");
-  await terminal.question("");
+  await terminal.wait();
 }
 
 async function runUpdate(

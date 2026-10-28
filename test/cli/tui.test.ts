@@ -516,6 +516,36 @@ test("each guided install step replaces the previous screen instead of stacking 
   });
 });
 
+test("re-running the install reports already-current skills as preserved, not as failures", async () => {
+  await withTuiSandbox(async ({ environment, restore }) => {
+    try {
+      await writeDetectedTargets(environment);
+      const first = scriptedOutput();
+      const firstAnswers = ["1", "1", "1", "", "4"];
+      await runTui({
+        output: first.output,
+        ask: async (prompt) => { first.output.write(prompt); return firstAnswers.shift() ?? ""; },
+        skillOptions: bundledSkillsOnly
+      });
+      assert.match(first.transcript(), /Installed: \d+/);
+
+      const second = scriptedOutput();
+      const secondAnswers = ["1", "1", "1", "", "4"];
+      await runTui({
+        output: second.output,
+        ask: async (prompt) => { second.output.write(prompt); return secondAnswers.shift() ?? ""; },
+        skillOptions: bundledSkillsOnly
+      });
+
+      const text = second.transcript();
+      assert.match(text, /Failed: 0/, "a skill that is already current is not a failure");
+      assert.doesNotMatch(text, /Failure: Skill .*already-current/);
+    } finally {
+      await restore();
+    }
+  });
+});
+
 test("guided install refuses to claim a target that is not installed", async () => {
   await withTuiSandbox(async ({ root, restore }) => {
     try {
@@ -660,6 +690,11 @@ test("real keyboard selection drives the guided install end to end", async () =>
       await expect("› [x] Python and FastAPI");
       input.write("\r");
       await expect("Apply these global changes?");
+      const confirmFrame = transcript.split("\u001b[H").pop() ?? "";
+      const confirmRows = confirmFrame.split("\r\n");
+      assert.equal(confirmRows.length, 24, "the confirm screen fills the viewport exactly");
+      assert.match(confirmRows[0] ?? "", /^╭ CONFIRM/, "the frame starts at the top row");
+      assert.match(confirmRows[23] ?? "", /↑↓ Navigate/, "the key hint is pinned to the last row");
       input.write("\u001b[A\r");
       await expect("These changes are global");
       input.write("\r");
