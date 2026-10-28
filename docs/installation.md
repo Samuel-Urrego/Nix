@@ -31,6 +31,24 @@ To preview only:
 
 `-NoLaunch` installs without opening the TUI. Re-running the installer updates the CLI from the selected ref and preserves Nix's configuration and managed component data.
 
+### Installer error codes
+
+If installation fails, copy the `NIX-INST-###` code printed by PowerShell and send it with the error details. The code identifies the failing stage:
+
+| Code | Meaning |
+|---|---|
+| `NIX-INST-001`–`003` | Node.js, npm, or Git is missing (in that order). |
+| `NIX-INST-004`–`008` | npm/Node.js version could not be read or parsed, or Node.js is below 20.11. |
+| `NIX-INST-009` | Windows did not provide the user install location. |
+| `NIX-INST-010` | npm could not install Nix; check the reported exit code, network, Git, and npm configuration. |
+| `NIX-INST-011` | npm reported success but did not create the Nix CLI command shim. |
+| `NIX-INST-012` | The installer could not update the user `PATH`; the message includes the directory to add manually. |
+| `NIX-INST-013`–`014` | Nix was installed, but the TUI could not start or exited with an error. |
+| `NIX-INST-015` | The requested branch or tag name is invalid. |
+| `NIX-INST-999` | An unexpected installer failure; include the full error details. |
+
+Errors that occur before the script starts (for example, failure to download the script itself) cannot be assigned a code by the installer.
+
 ## Configure from the TUI
 
 The installer opens the TUI after installing Nix. From there you can:

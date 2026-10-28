@@ -12,6 +12,7 @@ User request: “Si recuerda que la idea es que se instale, y luego desde la TUI
 Acceptance:
 - Provide one Windows PowerShell bootstrap script that installs/updates the Nix CLI from the configured Nix repository, checks prerequisites, and opens the Nix TUI after a successful build/link.
 - Script is idempotent, fails with actionable messages, preserves user files and avoids destructive cleanup.
+- Every handled failure prints a stable, copyable error code; unexpected failures use a documented fallback code.
 - It must never change the Araxys repository.
 
 Assumption: Bootstrap targets the configured public source repository `https://github.com/Samuel-Urrego/Nix.git` because no published npm package/release artifact is currently configured.
@@ -42,7 +43,7 @@ Checks: Structural doc readback and links.
 
 | ID | Specs | Route | Status | Commit |
 |----|-------|-------|--------|--------|
-| T1 | S1 | Inline | Done — PowerShell bootstrap dry-run and package build lifecycle pass | `6064bc1` |
+| T1 | S1 | Inline | Partial — stable failure codes and docs added; parent checks pass, independent scratch verification unavailable | `6064bc1` |
 | T2 | S2 | Inline | Done — TUI agent, MCP, and command managers reuse existing safe installers; install-decline test confirms no target writes | `6064bc1`, `9206bd4` |
 | T3 | S3 | Inline | Done — one-command install and TUI path documented; local guide links and acceptance section checked | `6064bc1` |
 
@@ -61,3 +62,5 @@ Checks: Structural doc readback and links.
 
 - L11 — Independent verification of 6064bc1 passed focused tests, typecheck, and build. In verifier scratch, the full suite's CRLF-sensitive agent-catalog failure reproduced on both baseline 71406a7 and candidate; the parent workspace full suite passes. Live installation was not performed because it requires network access and user-level mutation.
 - L12 — Added regression test 9206bd4: declining agent, MCP, and workflow-command installations leaves all candidate global files and ownership manifests absent; full suite remains green.
+- L13 — User request: “Que algo salio mal y un codigo de error bb, tenes que hacer que el catch diga un codigo de error que tu entiendas por cada caso que pueda fallar y ya yo te lo paso :D”
+- L14 — Added stable installer codes `NIX-INST-001`–`015` for handled failures and `NIX-INST-999` for unexpected errors, with a troubleshooting table and invalid-ref behavior test. Parent checks pass: 134 tests passed, 1 Windows symlink test skipped, typecheck/build/diff-check pass. The independent verifier could not create its mandated system-temp scratch copy because access was denied; its checks and baseline comparison remain unavailable, so T1 stays partial and is not published.
