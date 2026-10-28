@@ -306,6 +306,7 @@ function requireEntry(options: SkillInstallerOptions, id: string): SkillCatalogE
   const catalog = options.catalog ?? skillCatalog;
   const entry = catalog.find((item) => item.id === id);
   if (!entry) throw new Error(`Unknown skill: ${id}.`);
+  assertSafeRelativePath(entry.id, "skill id");
   return entry;
 }
 
