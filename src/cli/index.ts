@@ -32,11 +32,13 @@ import { getMcpStatus, installMcp, previewMcp, removeMcp, updateMcp } from "../c
 import { findSkillEntry, skillCatalog } from "../core/skills/skill-catalog.js";
 import { describeSkillSource, type SkillAgent } from "../core/skills/skill-contracts.js";
 import {
+  adoptSkill,
   createLocalSkillFetcher,
   getSkillStatus,
   globalSkillTargetPath,
   installSkill,
   previewSkill,
+  previewSkillAdoption,
   removeSkill,
   updateSkill
 } from "../core/skills/skill-installer.js";
@@ -87,6 +89,7 @@ const handlers = new Map<string, CommandHandler>([
   ["skill:status", printSkillStatus],
   ["skill:preview", previewSkillCommand],
   ["skill:install", installSkillCommand],
+  ["skill:adopt", adoptSkillCommand],
   ["skill:update", updateSkillCommand],
   ["skill:remove", removeSkillCommand],
   ["agent:list", printAgentCatalog],
@@ -742,6 +745,27 @@ async function previewSkillCommand(): Promise<void> {
   printSkillPlan(id, agent, await previewSkill(root, id, agent));
 }
 
+async function adoptSkillCommand(): Promise<void> {
+  const args = process.argv.slice(3);
+  const id = readSkillId(args);
+  const agent = readSkillAgent(args);
+  const root = path.resolve(resolveRootFromArgs(args));
+  const plan = await previewSkillAdoption(root, id, agent, skillOptions(args));
+  console.log(`Adoption: ${plan.action} — ${id} [${agent}]`);
+  console.log(`Target: ${plan.targetPath}`);
+  if (plan.additions.length > 0) console.log(`Adds: ${plan.additions.join(", ")}`);
+  if (plan.differences.length > 0) console.log(`Differs: ${plan.differences.join(", ")}`);
+  if (plan.unexpected.length > 0) console.log(`Not from Nix: ${plan.unexpected.join(", ")}`);
+  if (plan.reason) console.log(`Reason: ${plan.reason}`);
+  if (!args.includes("--yes")) {
+    console.log("Re-run with --yes to adopt this directory.");
+    return;
+  }
+  const result = await adoptSkill(root, id, agent, skillOptions(args));
+  console.log(`Adopted: ${id} [${agent}]`);
+  console.log(`Added: ${result.addedFiles.length > 0 ? result.addedFiles.join(", ") : "nothing (content already matched)"}`);
+}
+
 async function installSkillCommand(): Promise<void> {
   const args = process.argv.slice(3);
   const id = readSkillId(args);
@@ -941,6 +965,7 @@ async function printHelp(): Promise<void> {
   console.log("  skill:status     Diagnose global skill installs per agent (--root=<project>)");
   console.log("  skill:preview    Preview a skill (--id=<id> --agent=opencode|codex --root=<project>)");
   console.log("  skill:install    Install/update a skill (same flags, --yes [--source=<dir>])");
+  console.log("  skill:adopt      Claim an unmanaged skill directory whose content already matches (same flags, --yes)");
   console.log("  skill:update     Restore a managed skill from its pinned source (same flags, --yes)");
   console.log("  skill:remove     Remove only the Nix-managed skill (same flags, --yes)");
   console.log("  skill:new        Scaffold a global user skill (--id=<id> [--agent=opencode|codex])");

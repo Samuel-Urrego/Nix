@@ -6,9 +6,11 @@ import test from "node:test";
 
 import type { SkillCatalogEntry, SkillFileMap } from "../../src/core/skills/skill-contracts.js";
 import {
+  adoptSkill,
   getSkillStatus,
   installSkill,
   previewSkill,
+  previewSkillAdoption,
   removeSkill,
   updateSkill
 } from "../../src/core/skills/skill-installer.js";
@@ -57,6 +59,71 @@ async function fixture() {
 function options(catalogEntry: SkillCatalogEntry, fetcher: () => Promise<SkillFileMap> = async () => files()) {
   return { catalog: [catalogEntry], fetcher: async () => fetcher() };
 }
+
+test("adoption claims an identical unmanaged directory and adds only the files Nix owns", async () => {
+  const { root, restoreHome } = await fixture();
+  try {
+    const demo = entry();
+    const target = path.join(root, ".config", "opencode", "skills", "demo-skill");
+    await mkdir(path.join(target, "references"), { recursive: true });
+    await writeFile(path.join(target, "SKILL.md"), "---\nname: demo-skill\n---\n\n# Demo\n", "utf8");
+    await writeFile(path.join(target, "references", "notes.md"), "# Notes\n", "utf8");
+
+    const plan = await previewSkillAdoption(root, demo.id, "opencode", options(demo));
+    assert.equal(plan.action, "adopt");
+    assert.deepEqual(plan.additions, ["LICENSE"]);
+    assert.deepEqual(plan.differences, []);
+    assert.deepEqual(plan.unexpected, []);
+
+    const result = await adoptSkill(root, demo.id, "opencode", options(demo));
+    assert.deepEqual(result.addedFiles, ["LICENSE"]);
+    assert.equal(
+      await readFile(path.join(target, "SKILL.md"), "utf8"),
+      "---\nname: demo-skill\n---\n\n# Demo\n",
+      "adoption must not rewrite content it is claiming"
+    );
+    assert.match(await readFile(path.join(target, "LICENSE"), "utf8"), /MIT License/);
+    const status = (await getSkillStatus(root, options(demo))).find((item) => item.id === demo.id && item.agent === "opencode");
+    assert.equal(status?.state, "current");
+  } finally {
+    restoreHome();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("adoption refuses a directory whose content Nix did not write", async () => {
+  const { root, restoreHome } = await fixture();
+  try {
+    const demo = entry();
+    const target = path.join(root, ".config", "opencode", "skills", "demo-skill");
+    await mkdir(target, { recursive: true });
+    await writeFile(path.join(target, "SKILL.md"), "# Somebody else's skill\n", "utf8");
+
+    const plan = await previewSkillAdoption(root, demo.id, "opencode", options(demo));
+    assert.equal(plan.action, "conflict");
+    assert.deepEqual(plan.differences, ["SKILL.md"]);
+    await assert.rejects(adoptSkill(root, demo.id, "opencode", options(demo)), /differ from what Nix would install/);
+    assert.equal(await readFile(path.join(target, "SKILL.md"), "utf8"), "# Somebody else's skill\n");
+  } finally {
+    restoreHome();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("adoption reports nothing to adopt, or that the skill is already managed", async () => {
+  const { root, restoreHome } = await fixture();
+  try {
+    const demo = entry();
+    assert.equal((await previewSkillAdoption(root, demo.id, "opencode", options(demo))).action, "nothing-to-adopt");
+    await installSkill(root, demo.id, "opencode", options(demo));
+    const managed = await previewSkillAdoption(root, demo.id, "opencode", options(demo));
+    assert.equal(managed.action, "already-managed");
+    assert.deepEqual(managed.additions, []);
+  } finally {
+    restoreHome();
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("external skills report runtime tools without blocking installation", async () => {
   const { root, restoreHome } = await fixture();

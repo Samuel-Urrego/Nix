@@ -166,6 +166,21 @@ Risk: none — key handling only; no new write path.
 
 Checks: keyboard tests asserting a lone Escape resolves the selector and the multi-select within 200 ms; TUI test asserting a cancelled target step writes nothing.
 
+### S13 — Adopting an unmanaged skill directory
+
+User request: “Que Nix lo adopte” (about the pre-existing unmanaged `~\.agents\skills\accessibility`).
+
+Acceptance:
+- Adoption is an explicit operation (`skill:adopt`), never an automatic takeover during install.
+- A directory is claimable only when every existing file is byte-identical to what Nix would install; the plan lists the files Nix adds and refuses when any file differs or when the directory holds files Nix would not write.
+- Adoption never rewrites the content it claims: it writes the missing Nix-owned files (`LICENSE`) and records ownership.
+- After adoption the skill reports `current` and future updates apply normally.
+- The preview is read-only and applying requires `--yes`.
+
+Risk: item 1 — it takes ownership of existing stored content and records it in the managed state.
+
+Checks: installer test adopting an identical directory and asserting the original file is untouched; tests refusing different content and refusing an already-managed skill; read-only preview test.
+
 ## Tasks
 
 | ID | Specs | Route | Status | Commit / Evidence |
@@ -181,7 +196,8 @@ Checks: keyboard tests asserting a lone Escape resolves the selector and the mul
 | T9 | S9 | Inline | Done — `TuiTerminal.clear()` at every step boundary (home loop, `pause`, install steps, updater, advanced loops); RED test failed before the change | `e41a8eb`; TUI test splitting on `ESC[2J`; `171 passed` |
 | T10 | S10 | Inline | Done — `SpecialistAgentMode` plus optional `mode` contract, `nix` primary orchestrator entry, installer renders the declared mode | RED/GREEN catalog + installer tests; `173 passed` |
 | T11 | S11 | Inline | Done — orchestrator prompt gained the skill and specialist-roster protocol; the one-step install now writes the Nix-owned specialist agents per target | RED/GREEN catalog + TUI tests; `174 passed` |
-| T12 | S12 | Inline | Done — lone ESC flushed in 50 ms, multi-select cancel is `undefined` instead of `[]`, guided steps report `INSTALL CANCELLED` and write nothing | RED tests exceeded a 200 ms deadline before the change; `178 passed` |
+| T12 | S12 | Inline | Done — lone ESC flushed in 50 ms, multi-select cancel is `undefined` instead of `[]`, guided steps report `INSTALL CANCELLED` and write nothing | `000d6ad`; RED tests exceeded a 200 ms deadline before the change; `178 passed` |
+| T13 | S13 | Inline | Done — `previewSkillAdoption`/`adoptSkill` plus `skill:adopt`, claim only identical content, record ownership, never rewrite | RED/GREEN installer tests; `181 passed` |
 ## Log
 
 - L1 — User request: “Ya instala, y esta es la TUI, no me gusta para nada veo muchas opciones y eso de tener que pasarle un numero se ve muy pobre, hazlo que sea seleccionable con las flechas del teclado, que tenga un flujo de instalacion para saber que quiere instalar el usuario, que detecte si el usuario tiene codex o opencode, o ambos y le permita solo descargarlo en uno, que permita mirar que skills quiere instalar, el usuario que todo esto sea global, revisa la TUI de gentle-ai ya clone el repo esta aqui P:\Proyectos\gentle-ai crea una nueva rama para hacer esto, y haz el roadmap para mejorar la TUI, ve marcando el progreso del roadmap, y haz que sea una TUI chimba, que desde ahi mismo se pueda actualizar el AI-STACK y ponle un reborde a la TUI”
