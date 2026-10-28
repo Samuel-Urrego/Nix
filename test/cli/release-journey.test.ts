@@ -33,7 +33,8 @@ test("clean-machine first run diagnoses, configures, installs, backs up, restore
     const doctor = runCli(["doctor", `--root=${value.projectRoot}`], value.appData);
     assert.equal(doctor.status, 0, doctor.stderr);
     assert.match(doctor.stdout, /Status: bootstrap-ready/);
-    assert.match(doctor.stdout, /Version: 0\.1\.0/);
+    const packageVersion = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8")) as { version: string };
+    assert.ok(doctor.stdout.includes(`Version: ${packageVersion.version}`), doctor.stdout);
 
     const config = runCli(["config:init", `--root=${value.projectRoot}`], value.appData);
     assert.equal(config.status, 0, config.stderr);

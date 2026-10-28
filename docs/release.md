@@ -5,7 +5,7 @@ Nix produces a built `dist/` tree plus a checksum manifest, and publishes the pa
 ## Versioning
 
 - The package version is the release version. `package.json` and `src/core/system/project-metadata.ts` must match; a test enforces this.
-- The current version is `0.1.0`. The project is pre-1.0, so a minor release may include breaking changes; patch releases are intended to be compatible.
+- The current version is `0.1.1`. The project is pre-1.0, so a minor release may include breaking changes; patch releases are intended to be compatible.
 - `nix-ai --version` and `nix-ai version` print the CLI version. `nix-ai doctor` also reports it.
 
 ## Build and manifest
