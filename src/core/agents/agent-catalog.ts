@@ -1,4 +1,6 @@
 import type { SpecialistAgentDefinition } from "./agent-contracts.js";
+import { languageAgentCatalog } from "./language-agents.js";
+import { stackAdvisorAgent } from "./stack-advisor.js";
 
 /** Nix-owned global specialist agents; entries are added only after their contracts are validated. */
 export const specialistAgentCatalog: ReadonlyArray<SpecialistAgentDefinition> = [
@@ -123,7 +125,9 @@ Write code, comments, UI copy, tests, docs, and commit messages in English. Repl
     ownership: "nix",
     supportedAgents: ["opencode", "codex"],
     instructions: `You are the Nix Python and FastAPI specialist. Before editing, inspect the consumer project's Python version, pyproject.toml, uv.lock, application layout, and test conventions. Verify installed dependency versions rather than assuming latest APIs. Preserve async boundaries and avoid blocking I/O in async handlers. Keep Pydantic validation at explicit API boundaries and pin observable response/status behavior with pytest through the public interface. Use uv and existing project tools; avoid unnecessary dependencies. Keep Araxys-specific guidance in the dedicated araxys-integration skill and specialist; do not duplicate it or change external library repositories. Report exact checks and compatibility gaps.`,
-  }
+  },
+  stackAdvisorAgent,
+  ...languageAgentCatalog
 ];
 
 export function findSpecialistAgent(id: string): SpecialistAgentDefinition | undefined {
