@@ -51,7 +51,7 @@ test("TUI installs a Nix specialist agent through preview and explicit confirmat
   const output = new PassThrough() as PassThrough & { isTTY: boolean };
   let transcript = "";
   output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
-  const answers = ["3", "10", "2", "1", "1", "yes", "", "b", "12", "4"];
+  const answers = ["3", "10", "araxys", "1", "1", "yes", "", "b", "12", "4"];
 
   try {
     await runTui({ output, ask: async (prompt) => {
@@ -385,7 +385,7 @@ test("install everything also installs the Nix specialist agents for each detect
       const nixAgent = await readFile(path.join(openCodeAgents, "nix.md"), "utf8");
       assert.match(nixAgent, /mode: primary/);
       assert.match(nixAgent, /<!-- nix-ai:agent id=nix -->/);
-      for (const id of ["araxys-specialist", "python-fastapi-specialist"]) {
+      for (const id of ["skill-runner", "araxys-specialist", "python-fastapi-specialist"]) {
         assert.match(await readFile(path.join(openCodeAgents, `${id}.md`), "utf8"), /mode: subagent/, `${id} installs as a delegated role`);
         assert.match(await readFile(path.join(root, "codex", "agents", `${id}.toml`), "utf8"), new RegExp(`name = "${id}"`));
       }
