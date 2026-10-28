@@ -1,14 +1,15 @@
 #Requires -Version 5.1
 [CmdletBinding()]
 param(
-  [string]$Ref = "main",
   [switch]$DryRun,
   [switch]$NoLaunch
 )
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
 $repository = "https://github.com/Samuel-Urrego/Nix.git"
-$package = "git+https://github.com/Samuel-Urrego/Nix.git#$Ref"
+$releaseOwner = "Samuel-Urrego"
+$releaseRepository = "Nix"
 
 function Stop-WithError([string]$Code, [string]$Message) {
   throw "${Code}: $Message"
@@ -20,11 +21,22 @@ function Require-Command([string]$Name, [string]$Code, [string]$InstallHint) {
   }
 }
 
-try {
-  if ($Ref -notmatch '^[A-Za-z0-9][A-Za-z0-9._/-]*$') {
-    Stop-WithError "NIX-INST-015" "The selected ref is invalid. Use a branch or tag name containing only letters, numbers, dots, underscores, hyphens, or slashes."
-  }
+function Get-LatestReleaseTag {
+  $raw = & git ls-remote --tags --refs --sort=-v:refname $repository "refs/tags/v*" 2>$null
+  if ($LASTEXITCODE -ne 0) { return $null }
+  $line = @($raw) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1
+  if ($null -eq $line) { return $null }
+  $ref = ($line -split '\s+')[1]
+  if ([string]::IsNullOrWhiteSpace($ref)) { return $null }
+  $tag = $ref -replace '^refs/tags/', ''
+  $version = $tag -replace '^v', ''
+  if ([string]::IsNullOrWhiteSpace($version)) { return $null }
+  return [pscustomobject]@{ Tag = $tag; Version = $version }
+}
 
+$tarball = $null
+
+try {
   if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
     Stop-WithError "NIX-INST-009" "Windows did not provide LOCALAPPDATA, so the user install folder could not be determined."
   }
@@ -59,34 +71,69 @@ try {
 
   Write-Host "Nix AI Stack installer" -ForegroundColor Cyan
   Write-Host "Repository: $repository"
-  Write-Host "Ref:        $Ref"
+  Write-Host "Release:    latest v* tag, installed from its prebuilt release artifact"
+  Write-Host "Resolve:    git ls-remote --tags --refs --sort=-v:refname $repository refs/tags/v*"
+  Write-Host "Asset:      https://github.com/$releaseOwner/$releaseRepository/releases/download/<tag>/nix-ai-stack-<version>.tgz"
   Write-Host "Node.js:    v$nodeVersionText"
   Write-Host "npm:        v$npmVersionText"
   Write-Host "Install:    $installPrefix (current user; no administrator access)"
   Write-Host "Next:       launch the Nix configuration TUI after installation"
 
-  $npmArgs = @("install", "--global", "--prefix", $installPrefix, "--foreground-scripts")
-  if ($npmVersion.Major -ge 11) { $npmArgs += @("--allow-scripts", "nix-ai-stack") }
-  $npmArgs += $package
-
   if ($DryRun) {
-    Write-Host "[dry run] Would run: npm $($npmArgs -join ' ')" -ForegroundColor Yellow
+    Write-Host "[dry run] Would resolve the latest tag, download its nix-ai-stack-<version>.tgz asset, then run: npm install --global --prefix $installPrefix --ignore-scripts <tarball>" -ForegroundColor Yellow
+    Write-Host "[dry run] No release artifact is downloaded and no lifecycle script is executed." -ForegroundColor Yellow
     return
   }
 
+  $release = Get-LatestReleaseTag
+  if ($null -eq $release) {
+    Stop-WithError "NIX-INST-015" "No release tag matching v* was found in '$repository'. Confirm the repository is reachable and at least one release tag exists, then retry."
+  }
+  $tag = $release.Tag
+  $version = $release.Version
+  $assetName = "nix-ai-stack-$version.tgz"
+  $assetUrl = "https://github.com/$releaseOwner/$releaseRepository/releases/download/$tag/$assetName"
+
   Write-Host ""
-  Write-Host "Installing Nix from the configured Git repository..." -ForegroundColor Cyan
+  Write-Host "Latest tag: $tag" -ForegroundColor Cyan
+  Write-Host "Artifact:   $assetUrl"
+
+  $tarball = Join-Path ([System.IO.Path]::GetTempPath()) "nix-ai-stack-$version-$([guid]::NewGuid().ToString('N').Substring(0, 8)).tgz"
+  Write-Host ""
+  Write-Host "Downloading the prebuilt release artifact..." -ForegroundColor Cyan
+  try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Invoke-WebRequest -Uri $assetUrl -OutFile $tarball -UseBasicParsing
+  } catch {
+    Stop-WithError "NIX-INST-016" "Could not download the '$tag' release artifact from '$assetUrl'. Check network access and confirm the asset exists for that tag, then retry."
+  }
+  if (-not (Test-Path -LiteralPath $tarball -PathType Leaf)) {
+    Stop-WithError "NIX-INST-016" "The '$tag' release artifact was not written to '$tarball'. Check network access and retry."
+  }
+
+  $npmArgs = @("install", "--global", "--prefix", $installPrefix, "--ignore-scripts", $tarball)
+
+  Write-Host ""
+  Write-Host "Installing Nix $version with --ignore-scripts..." -ForegroundColor Cyan
   try { & npm @npmArgs } catch {
-    Stop-WithError "NIX-INST-010" "npm could not run the Nix installation. Check network access, Git, and npm configuration, then retry."
+    Stop-WithError "NIX-INST-010" "npm could not run the Nix installation. Check network access, npm configuration, and the downloaded artifact, then retry."
   }
   if ($LASTEXITCODE -ne 0) {
-    Stop-WithError "NIX-INST-010" "npm could not install Nix (exit code $LASTEXITCODE). Check network access, Git, and npm configuration, then retry."
+    Stop-WithError "NIX-INST-010" "npm could not install Nix (exit code $LASTEXITCODE). Check network access and npm configuration, then retry."
   }
 
   $cliPath = Join-Path $installPrefix "nix-ai.cmd"
   if (-not (Test-Path -LiteralPath $cliPath -PathType Leaf)) {
-    Stop-WithError "NIX-INST-011" "npm completed, but the Nix CLI shim was not found at '$cliPath'. Check npm's global prefix and retry."
+    Stop-WithError "NIX-INST-011" "npm completed, but the Nix CLI shim was not found at '$cliPath'. The '$tag' artifact may be incomplete; retry the installation."
   }
+
+  try { $installedVersion = (& $cliPath --version | Out-String).Trim() } catch {
+    Stop-WithError "NIX-INST-017" "The Nix CLI was installed at '$cliPath' but could not report its version. Remove that folder and retry."
+  }
+  if ($installedVersion -ne $version) {
+    Stop-WithError "NIX-INST-017" "The installed CLI reports version '$installedVersion' but the '$tag' release is '$version'. Remove '$installPrefix' and retry."
+  }
+  Write-Host "Installed Nix $installedVersion." -ForegroundColor Green
 
   $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
   $prefixPresent = @($userPath -split ";" | ForEach-Object { $_.Trim().TrimEnd("\") }) -contains $installPrefix.TrimEnd("\")
@@ -122,4 +169,8 @@ try {
     Write-Host "[installer error] NIX-INST-999: An unexpected failure occurred. Share this code and the full error details: $errorMessage" -ForegroundColor Red
   }
   throw
+} finally {
+  if (-not [string]::IsNullOrWhiteSpace($tarball) -and (Test-Path -LiteralPath $tarball)) {
+    Remove-Item -LiteralPath $tarball -Force -ErrorAction SilentlyContinue
+  }
 }

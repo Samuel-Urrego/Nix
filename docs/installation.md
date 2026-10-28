@@ -19,9 +19,11 @@ The authoritative compatibility record is the release manifest and the [support 
 $installer = Join-Path $env:TEMP 'nix-install.ps1'; Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/Samuel-Urrego/Nix/main/scripts/install.ps1' -OutFile $installer; & $installer
 ```
 
-The installer checks Node.js, npm, and Git, installs Nix under your user profile without administrator access, then opens the configuration TUI. It asks before adding Nix's command directory to your user `PATH`; declining does not prevent this installation from launching the TUI.
+The installer checks Node.js, npm, and Git, then installs the **latest `v*` release tag** from its prebuilt release artifact under your user profile without administrator access. It opens the configuration TUI afterwards. It asks before adding Nix's command directory to your user `PATH`; declining does not prevent this installation from launching the TUI.
 
-**Trust boundary:** this downloads and runs the PowerShell installer from the Nix GitHub repository. Review [`scripts/install.ps1`](https://github.com/Samuel-Urrego/Nix/blob/main/scripts/install.ps1) before executing it if you want to inspect the source first. The installer does not change PowerShell's execution policy, request elevation, or delete existing files. `-DryRun` prints the source, target, and install command without installing; `-Ref <branch-or-tag>` selects a different repository ref.
+**Tag-based releases:** the installer resolves the newest `v*` tag with `git ls-remote`, downloads `nix-ai-stack-<version>.tgz` from that tag's GitHub release, and installs it with `npm install --global --ignore-scripts`. Because the artifact is already compiled, no package lifecycle script runs during installation: `prepare`, `postinstall`, and any other install script are blocked. A branch is never installed; use `npm link` from a source checkout to test unreleased code.
+
+**Trust boundary:** this downloads and runs the PowerShell installer from the Nix GitHub repository. Review [`scripts/install.ps1`](https://github.com/Samuel-Urrego/Nix/blob/main/scripts/install.ps1) before executing it if you want to inspect the source first. The installer does not change PowerShell's execution policy, request elevation, delete existing files, or execute downloaded package scripts.
 
 To preview only:
 
@@ -29,7 +31,7 @@ To preview only:
 .\scripts\install.ps1 -DryRun
 ```
 
-`-NoLaunch` installs without opening the TUI. Re-running the installer updates the CLI from the selected ref and preserves Nix's configuration and managed component data.
+`-DryRun` reports the tag resolution command, the artifact URL pattern, and the exact npm command without downloading anything or touching the network. `-NoLaunch` installs without opening the TUI. Re-running the installer moves the CLI to the newest release tag and preserves Nix's configuration and managed component data.
 
 ### Installer error codes
 
@@ -44,7 +46,9 @@ If installation fails, copy the `NIX-INST-###` code printed by PowerShell and se
 | `NIX-INST-011` | npm reported success but did not create the Nix CLI command shim. |
 | `NIX-INST-012` | The installer could not update the user `PATH`; the message includes the directory to add manually. |
 | `NIX-INST-013`–`014` | Nix was installed, but the TUI could not start or exited with an error. |
-| `NIX-INST-015` | The requested branch or tag name is invalid. |
+| `NIX-INST-015` | No `v*` release tag could be resolved from the repository. |
+| `NIX-INST-016` | The prebuilt release artifact could not be downloaded for the resolved tag. |
+| `NIX-INST-017` | The installed CLI does not report the version of the resolved release tag. |
 | `NIX-INST-999` | An unexpected installer failure; include the full error details. |
 
 Errors that occur before the script starts (for example, failure to download the script itself) cannot be assigned a code by the installer.
@@ -217,7 +221,7 @@ Removing a component does not delete user-owned files, unrelated agent configura
 Use a fresh Windows user profile or a disposable VM:
 
 1. Install Node.js 20.11+, npm, and Git; confirm their commands are available.
-2. Run `scripts/install.ps1 -DryRun` and confirm it reports the expected repository, ref, and user install target without changing files.
+2. Run `scripts/install.ps1 -DryRun` and confirm it reports the tag resolution command, the artifact URL pattern, and the user install target without changing files or using the network.
 3. Run the installer from a trusted source and confirm it opens the Nix TUI after installation.
 4. In the TUI, preview and install one specialist, one skill, one command surface, and an optional MCP; verify a declined confirmation changes no files.
 5. Confirm an existing unmanaged target is preserved and an unmet MCP prerequisite is reported.
@@ -230,7 +234,9 @@ The interactive TUI journey requires a real terminal. Automated TUI tests inject
 
 ## Troubleshooting
 
-- **`nix-ai` is not recognized:** run `npm link` from the repository, or use `node dist/cli/index.js`.
+- **`nix-ai` is not recognized:** open a new terminal after the PATH change, or run the installed shim at `%LOCALAPPDATA%\Programs\Nix AI Stack\npm\nix-ai.cmd`.
+- **`NIX-INST-015`:** the repository has no `v*` release tag, or Git could not reach it. Confirm network access and that at least one released tag exists.
+- **`NIX-INST-016`:** the resolved tag has no `nix-ai-stack-<version>.tgz` asset. Publish the artifact for that tag and retry; the installer never falls back to a branch.
 - **`doctor` reports an invalid stack state:** inspect the file at the reported path. Restore the `.bak` only after confirming it is the intended previous state.
 - **Install reports a conflict:** the target exists and is not owned by Nix, or its content differs. Back up and remove the target manually only after reviewing it.
 - **Update refuses the version:** Nix refuses downgrades and same-version replacements. Publish a higher component version for a real upgrade.

@@ -69,7 +69,33 @@ SECURITY.md
 CODE_OF_CONDUCT.md
 ```
 
-The package remains `private`; no publish step is configured. Use a dry run to inspect the package contents:
+The package remains `private`; no publish to the npm registry is configured.
+
+## Installer artifact
+
+The Windows installer never installs from a branch. It resolves the newest `v*` tag and downloads the prebuilt tarball attached to that tag's GitHub release:
+
+```text
+https://github.com/Samuel-Urrego/Nix/releases/download/<tag>/nix-ai-stack-<version>.tgz
+```
+
+Because the artifact already contains `dist/`, the installer runs `npm install --global --ignore-scripts`, so no package lifecycle script executes on the user's machine.
+
+Cutting a release:
+
+```powershell
+git checkout main
+git pull
+# package.json and src/core/system/project-metadata.ts must both hold the release version
+npm run typecheck
+npm test
+npm pack                                   # runs the prepare build, then writes nix-ai-stack-<version>.tgz
+git tag -a v<version> -m "Nix <version>"
+git push origin v<version>
+gh release create v<version> .\nix-ai-stack-<version>.tgz --title "v<version>" --notes "<summary>"
+```
+
+A tag without an attached `.tgz` is not installable: the installer stops with `NIX-INST-016` instead of falling back to source. To inspect the artifact before publishing:
 
 ```powershell
 npm pack --dry-run
