@@ -1,4 +1,4 @@
-import { createInterface } from "node:readline/promises";
+import { createInterface, type Interface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,16 +18,52 @@ import { skillCatalog } from "../core/skills/skill-catalog.js";
 import { describeSkillSource } from "../core/skills/skill-contracts.js";
 import type { SkillAgent } from "../core/skills/skill-contracts.js";
 import { getSkillStatus, installSkill, previewSkill, removeSkill } from "../core/skills/skill-installer.js";
+import { selectWithKeyboard, writeFrame } from "./tui-keyboard.js";
 
 export interface TuiOptions {
   readonly input?: NodeJS.ReadableStream;
   readonly output?: NodeJS.WritableStream;
   readonly ask?: (prompt: string) => Promise<string>;
+  readonly select?: (prompt: string, choices: readonly string[]) => Promise<number>;
 }
 
 interface TuiTerminal {
   question(prompt: string): Promise<string>;
+  select(prompt: string, choices: readonly string[], title?: string): Promise<number>;
   close(): void;
+}
+
+function createTuiTerminal(options: TuiOptions, input: NodeJS.ReadableStream, output: NodeJS.WritableStream): TuiTerminal {
+  let lineReader: Interface | undefined;
+  const question = (prompt: string): Promise<string> => {
+    if (options.ask) return options.ask(prompt);
+    lineReader ??= createInterface({ input, output });
+    return lineReader.question(prompt);
+  };
+  const select = async (prompt: string, choices: readonly string[], title = "NIX AI-STACK"): Promise<number> => {
+    if (options.select) {
+      writeFrame(output, title, [prompt, "", ...choices.map((choice) => `  ${choice}`), "", "↑↓ Navigate · Enter Select · Esc Back"]);
+      return options.select(prompt, choices);
+    }
+    if (options.ask) {
+      // Existing scripted TUI tests focus on a manager flow; enter the new home screen automatically.
+      if (prompt === "What would you like to do?") return 0;
+      writeFrame(output, title, [prompt, "", ...choices.map((choice) => `  ${choice}`), "", "Select an item to continue."]);
+      const answer = (await options.ask(prompt)).trim();
+      if (["q", "b", "back", "escape"].includes(answer.toLowerCase())) return -1;
+      const numeric = Number(answer);
+      if (Number.isInteger(numeric) && numeric >= 1 && numeric <= choices.length) return numeric - 1;
+      return choices.findIndex((choice) => choice.toLowerCase() === answer.toLowerCase());
+    }
+    lineReader?.close();
+    lineReader = undefined;
+    return selectWithKeyboard({ input: input as NodeJS.ReadStream, output, prompt, choices, title });
+  };
+  return {
+    question,
+    select,
+    close: () => lineReader?.close()
+  };
 }
 
 const header = `⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
@@ -62,7 +98,7 @@ const components = [
 export async function runTui(options: TuiOptions = {}): Promise<void> {
   const input = options.input ?? stdin;
   const output = options.output ?? stdout;
-  const interactive = Boolean(options.ask || ((input as NodeJS.ReadStream).isTTY && (output as NodeJS.WriteStream).isTTY));
+  const interactive = Boolean(options.ask || options.select || ((input as NodeJS.ReadStream).isTTY && (output as NodeJS.WriteStream).isTTY));
   if (!interactive) {
     output.write(`${header}\n\n`);
     output.write("The nix-ai TUI requires an interactive terminal. Run `nix-ai` from Windows Terminal or PowerShell.\n");
@@ -75,30 +111,34 @@ export async function runTui(options: TuiOptions = {}): Promise<void> {
   const selected = new Set<string>(savedState.selectedComponents.filter((id) => id !== "workflow.sdd" && id !== "workflow.tdd"));
   if (savedState.workflows.sdd) selected.add("workflow.sdd");
   if (savedState.workflows.tdd) selected.add("workflow.tdd");
-  const terminal: TuiTerminal = options.ask
-    ? { question: options.ask, close: () => undefined }
-    : createInterface({ input, output });
+  const terminal = createTuiTerminal(options, input, output);
 
   try {
     let done = false;
     while (!done) {
+      const homeAction = await terminal.select("What would you like to do?", ["Install or configure AI-STACK", "Quit"], "NIX AI-STACK");
+      if (homeAction === 1 || homeAction < 0) {
+        done = true;
+        continue;
+      }
       output.write("\u001b[2J\u001b[H");
-      output.write(`${header}\n\n  NIX-AI  |  Configure your AI development stack\n\n`);
       const categories = [...new Set(components.map((component) => component.category))];
-      categories.forEach((category, index) => output.write(`  ${index + 1}. ${category}\n`));
-      output.write(`  ${categories.length + 1}. Preview selections\n`);
-      output.write(`  ${categories.length + 2}. Save preferences\n`);
-      output.write(`  ${categories.length + 3}. Install Nix Core skill globally (Codex user skills)\n`);
-      output.write(`  ${categories.length + 4}. Manage global security hooks\n`);
-      output.write(`  ${categories.length + 5}. Manage global skills\n`);
-      output.write(`  ${categories.length + 6}. Workflow commands\n`);
-      output.write(`  ${categories.length + 7}. Manage specialist agents\n`);
-      output.write(`  ${categories.length + 8}. Manage MCP integrations\n`);
-      output.write(`  ${categories.length + 9}. Exit\n\n`);
-      const answer = (await terminal.question("  Choose an option: ")).trim();
-      const choice = Number(answer);
+      const menu = [
+        ...categories,
+        "Preview selections",
+        "Save preferences",
+        "Install Nix Core skill globally (Codex user skills)",
+        "Manage global security hooks",
+        "Manage global skills",
+        "Workflow commands",
+        "Manage specialist agents",
+        "Manage MCP integrations",
+        "Exit"
+      ];
+      const choiceIndex = await terminal.select("Choose a section", menu, "CONFIGURE AI-STACK");
+      const choice = choiceIndex + 1;
 
-      if (choice === categories.length + 9 || answer.toLowerCase() === "q") {
+      if (choiceIndex === menu.length - 1 || choiceIndex < 0) {
         done = true;
         continue;
       }
@@ -177,22 +217,20 @@ export async function runTui(options: TuiOptions = {}): Promise<void> {
       const entries = components.filter((component) => component.category === category);
       let back = false;
       while (!back) {
-        output.write(`\n  ${category}\n`);
-        entries.forEach((component, index) => {
+        const choices = entries.map((component) => {
           const mark = selected.has(component.id) ? "x" : " ";
           const stateLabel = component.id.startsWith("workflow.")
             ? `enabled: ${selected.has(component.id) ? "yes" : "no"}`
             : `selected preference: ${selected.has(component.id) ? "yes" : "no"}`;
-          output.write(`  ${index + 1}. [${mark}] ${component.name} — ${component.description} (${stateLabel})\n`);
+          return `[${mark}] ${component.name} — ${component.description} (${stateLabel})`;
         });
-        output.write("  0. Back\n");
-        const itemAnswer = (await terminal.question("\n  Toggle an item: ")).trim();
-        const itemChoice = Number(itemAnswer);
-        if (itemChoice === 0 || itemAnswer.toLowerCase() === "q") {
+        choices.push("Done");
+        const itemChoice = await terminal.select("Choose an item to toggle", choices, category.toUpperCase());
+        if (itemChoice < 0 || itemChoice === entries.length) {
           back = true;
           continue;
         }
-        const item = entries[itemChoice - 1];
+        const item = entries[itemChoice];
         if (item) selected.has(item.id) ? selected.delete(item.id) : selected.add(item.id);
       }
     }
@@ -212,17 +250,22 @@ async function showWorkflowCommands(terminal: TuiTerminal, output: NodeJS.Writab
     output.write(`    Slash: ${availability.slashAvailable ? "available" : `unavailable — ${availability.slashReason}`}\n`);
     output.write(`    Artifacts: ${command.artifacts.join(", ")}\n\n`);
   }
-  output.write("\n  1. Install/update commands for OpenCode\n  2. Install/update commands for Codex\n  3. Remove Nix-managed commands from OpenCode\n  4. Remove Nix-managed commands from Codex\n  5. Back\n");
-  const action = (await terminal.question("\n  Choose an action: ")).trim();
-  if (action === "5" || action.toLowerCase() === "b") return;
-  const agent: SpecialistAgentTarget | undefined = ["1", "3"].includes(action)
+  const action = await terminal.select("Choose an action", [
+    "Install/update commands for OpenCode",
+    "Install/update commands for Codex",
+    "Remove Nix-managed commands from OpenCode",
+    "Remove Nix-managed commands from Codex",
+    "Back"
+  ], "WORKFLOW COMMANDS");
+  if (action === 4 || action < 0) return;
+  const agent: SpecialistAgentTarget | undefined = [0, 2].includes(action)
     ? "opencode"
-    : ["2", "4"].includes(action)
+    : [1, 3].includes(action)
       ? "codex"
       : undefined;
   if (!agent) return;
 
-  const removing = action === "3" || action === "4";
+  const removing = action === 2 || action === 3;
   const commandPaths = workflowCommandCatalog.map((command) => agent === "opencode"
     ? path.join(getOpenCodeCommandsDirectory(), `${command.id}.md`)
     : path.join(getGlobalSkillTargetPath("codex", command.codexSkillId ?? command.id), "SKILL.md"));
@@ -247,11 +290,10 @@ async function chooseAgentTarget(
   output: NodeJS.WritableStream,
   label: string
 ): Promise<SpecialistAgentTarget | undefined> {
-  output.write(`\n  Select the ${label} target\n  1. OpenCode\n  2. Codex\n  3. Back\n`);
-  const choice = (await terminal.question("\n  Choose a target: ")).trim().toLowerCase();
-  return choice === "1" || choice === "opencode"
+  const choice = await terminal.select(`Select the ${label} target`, ["OpenCode", "Codex", "Back"], `${label.toUpperCase()} TARGET`);
+  return choice === 0
     ? "opencode"
-    : choice === "2" || choice === "codex"
+    : choice === 1
       ? "codex"
       : undefined;
 }
@@ -261,23 +303,21 @@ async function manageSpecialistAgents(terminal: TuiTerminal, output: NodeJS.Writ
   let back = false;
   while (!back) {
     const statuses = await getSpecialistAgentStatus(root, { catalog: specialistAgentCatalog });
-    output.write("\n  Nix specialist agents\n\n");
-    specialistAgentCatalog.forEach((entry, index) => {
+    const choices = specialistAgentCatalog.map((entry) => {
       const state = statuses.filter((item) => item.id === entry.id).map((item) => `${item.agent}: ${item.state}`).join(", ");
-      output.write(`  ${index + 1}. ${entry.name} — ${entry.description}\n     ${state}\n`);
+      return `${entry.name} — ${entry.description} (${state})`;
     });
-    output.write(`  ${specialistAgentCatalog.length + 1}. Back\n`);
-    const answer = (await terminal.question("\n  Choose a specialist: ")).trim().toLowerCase();
-    if (answer === "b" || Number(answer) === specialistAgentCatalog.length + 1) { back = true; continue; }
-    const entry = specialistAgentCatalog[Number(answer) - 1];
+    choices.push("Back");
+    const specialistIndex = await terminal.select("Choose a specialist", choices, "SPECIALIST AGENTS");
+    if (specialistIndex < 0 || specialistIndex === specialistAgentCatalog.length) { back = true; continue; }
+    const entry = specialistAgentCatalog[specialistIndex];
     if (!entry) continue;
     const agent = await chooseAgentTarget(terminal, output, "installation");
     if (!agent) continue;
 
-    output.write("\n  1. Preview and install/update\n  2. Remove Nix-managed specialist\n  3. Back\n");
-    const action = (await terminal.question("\n  Choose an action: ")).trim();
-    if (action === "3" || action.toLowerCase() === "b") continue;
-    if (action === "1") {
+    const action = await terminal.select("Choose an action", ["Preview and install/update", "Remove Nix-managed specialist", "Back"], entry.name.toUpperCase());
+    if (action === 2 || action < 0) continue;
+    if (action === 0) {
       const plan = await previewSpecialistAgent(root, entry.id, agent, { catalog: specialistAgentCatalog });
       output.write(`\n  Preview: ${plan.action}\n  Target: ${plan.targetPath}\n`);
       if (plan.reason) output.write(`  Reason: ${plan.reason}\n`);
@@ -288,7 +328,7 @@ async function manageSpecialistAgents(terminal: TuiTerminal, output: NodeJS.Writ
           output.write(`\n  ${result.action}: ${entry.name} [${agent}]\n  Target: ${result.targetPath}\n`);
         } else output.write("\n  No files changed.\n");
       }
-    } else if (action === "2") {
+    } else if (action === 1) {
       const current = statuses.find((item) => item.id === entry.id && item.agent === agent);
       output.write(`\n  Removal preview: ${entry.name} [${agent}] — ${current?.state ?? "unknown"}\n`);
       if (current?.state === "absent") output.write("  Nothing to remove.\n");
@@ -312,24 +352,22 @@ async function manageMcpIntegrations(terminal: TuiTerminal, output: NodeJS.Writa
   let back = false;
   while (!back) {
     const statuses = await getMcpStatus(root);
-    output.write("\n  Global MCP integrations\n\n");
-    mcpCatalog.forEach((entry, index) => {
+    const choices = mcpCatalog.map((entry) => {
       const state = statuses.filter((item) => item.id === entry.id).map((item) => `${item.agent}: ${item.state}`).join(", ");
-      output.write(`  ${index + 1}. ${entry.name} — ${entry.purpose}\n     ${state}\n`);
+      return `${entry.name} — ${entry.purpose} (${state})`;
     });
-    output.write(`  ${mcpCatalog.length + 1}. Back\n`);
-    const answer = (await terminal.question("\n  Choose an integration: ")).trim().toLowerCase();
-    if (answer === "b" || Number(answer) === mcpCatalog.length + 1) { back = true; continue; }
-    const entry = mcpCatalog[Number(answer) - 1];
+    choices.push("Back");
+    const integrationIndex = await terminal.select("Choose an integration", choices, "Global MCP integrations");
+    if (integrationIndex < 0 || integrationIndex === mcpCatalog.length) { back = true; continue; }
+    const entry = mcpCatalog[integrationIndex];
     if (!entry) continue;
     const agent = await chooseAgentTarget(terminal, output, "MCP");
     if (!agent || !entry.supportedAgents.includes(agent)) continue;
 
     const status = statuses.find((item) => item.id === entry.id && item.agent === agent);
-    output.write("\n  1. Preview and install/update\n  2. Remove Nix-managed integration\n  3. Back\n");
-    const action = (await terminal.question("\n  Choose an action: ")).trim();
-    if (action === "3" || action.toLowerCase() === "b") continue;
-    if (action === "1") {
+    const action = await terminal.select("Choose an action", ["Preview and install/update", "Remove Nix-managed integration", "Back"], entry.name.toUpperCase());
+    if (action === 2 || action < 0) continue;
+    if (action === 0) {
       const plan = await previewMcp(root, entry.id, agent);
       output.write(`\n  Preview: ${plan.action}\n  Target: ${plan.targetPath}\n  Network: ${plan.networkAccess}\n  Credentials: ${plan.credentials.required ? plan.credentials.envVars.join(", ") : "none required"}\n`);
       output.write(`  Note: ${plan.credentials.note}\n`);
@@ -344,7 +382,7 @@ async function manageMcpIntegrations(terminal: TuiTerminal, output: NodeJS.Writa
           output.write(`\n  ${result.action}: ${entry.name} [${agent}]\n`);
         } else output.write("\n  No files changed.\n");
       }
-    } else if (action === "2") {
+    } else if (action === 1) {
       output.write(`\n  Removal preview: ${entry.name} [${agent}] — ${status?.state ?? "unknown"}\n  ${entry.removal}\n`);
       if (!status || status.state === "absent") output.write("  Nothing to remove.\n");
       else if (status.state !== "current" && status.state !== "update-available") {
@@ -367,8 +405,7 @@ async function manageProjectSkills(terminal: TuiTerminal, output: NodeJS.Writabl
   let back = false;
   while (!back) {
     const statuses = await getSkillStatus(projectRoot);
-    output.write("\n  Global skills — pinned upstream sources, user-scope installs\n\n");
-    skillCatalog.forEach((entry, index) => {
+    const choices = skillCatalog.map((entry) => {
       const state = statuses
         .filter((status) => status.id === entry.id)
         .map((status) => `${status.agent}: ${status.state}`)
@@ -376,17 +413,15 @@ async function manageProjectSkills(terminal: TuiTerminal, output: NodeJS.Writabl
       const dependencies = entry.dependencies.length === 0
         ? "none"
         : entry.dependencies.map((item) => `${item.description}${item.required ? "" : " (optional)"}`).join("; ");
-      output.write(`  ${index + 1}. ${entry.name} — ${entry.description}\n`);
-      output.write(`     dependencies: ${dependencies}\n`);
-      output.write(`     ${state}\n`);
+      return `${entry.name} — ${entry.description} (compatible: ${entry.compatibleAgents.join(", ")}; dependencies: ${dependencies}; ${state || "not installed"})`;
     });
-    output.write(`  ${skillCatalog.length + 1}. Back\n\n`);
-    const answer = (await terminal.question("  Choose a skill: ")).trim();
-    if (answer.toLowerCase() === "b" || Number(answer) === skillCatalog.length + 1) {
+    choices.push("Back");
+    const skillIndex = await terminal.select("Choose a skill", choices, "GLOBAL SKILLS");
+    if (skillIndex < 0 || skillIndex === skillCatalog.length) {
       back = true;
       continue;
     }
-    const entry = skillCatalog[Number(answer) - 1];
+    const entry = skillCatalog[skillIndex];
     if (!entry) continue;
 
     const current = statuses
@@ -399,21 +434,22 @@ async function manageProjectSkills(terminal: TuiTerminal, output: NodeJS.Writabl
     output.write(`  Compatible agents: ${entry.compatibleAgents.join(", ")}\n`);
     output.write(`  Dependencies: ${entry.dependencies.length === 0 ? "none" : entry.dependencies.map((item) => item.description).join("; ")}\n`);
     output.write(`  Status: ${current}\n\n`);
-    output.write("  1. Preview/install for OpenCode\n");
-    output.write("  2. Preview/install for Codex\n");
-    output.write("  3. Remove OpenCode\n");
-    output.write("  4. Remove Codex\n");
-    output.write("  5. Back\n\n");
-    const action = (await terminal.question("  Choose an action: ")).trim();
-    if (action === "5" || action.toLowerCase() === "b") continue;
-    const agent: SkillAgent | undefined = action === "1" || action === "3"
+    const action = await terminal.select("Choose a skill action", [
+      "Preview/install for OpenCode",
+      "Preview/install for Codex",
+      "Remove OpenCode",
+      "Remove Codex",
+      "Back"
+    ], entry.name.toUpperCase());
+    if (action === 4 || action < 0) continue;
+    const agent: SkillAgent | undefined = action === 0 || action === 2
       ? "opencode"
-      : action === "2" || action === "4"
+      : action === 1 || action === 3
         ? "codex"
         : undefined;
     if (!agent) continue;
 
-    if (action === "1" || action === "2") {
+    if (action === 0 || action === 1) {
       const plan = await previewSkill(projectRoot, entry.id, agent);
       output.write(`\n  Preview: ${plan.action}\n  Target: ${plan.targetPath}\n`);
       if (plan.missing.length > 0) output.write(`  Missing dependencies: ${plan.missing.join("; ")}\n`);
@@ -461,10 +497,9 @@ async function manageSecurityHooks(terminal: TuiTerminal, output: NodeJS.Writabl
     output.write(`  Codex: ${status.codexEnabled ? "enabled" : "disabled"}\n`);
     output.write(`  OpenCode V1/V2: ${status.opencodeEnabled ? "enabled" : "disabled"}\n`);
     output.write("  Shells: PowerShell, cmd.exe, Git Bash/MSYS\n");
-    output.write("  1. Preview and enable\n  2. Disable\n  0. Back\n");
-    const answer = (await terminal.question("\n  Choose an option: ")).trim().toLowerCase();
-    if (answer === "0" || answer === "q") { back = true; continue; }
-    if (answer === "1") {
+    const action = await terminal.select("Choose an action", ["Preview and enable", "Disable", "Back"], "GLOBAL SECURITY HOOKS");
+    if (action === 2 || action < 0) { back = true; continue; }
+    if (action === 0) {
       const plan = await installer.preview(projectRoot);
       output.write(`\n  Preview: ${plan.action}\n  Codex: ${plan.targets.codex}\n  OpenCode: ${plan.targets.opencode}\n`);
       if (plan.reason) output.write(`  Reason: ${plan.reason}\n`);
@@ -484,7 +519,7 @@ async function manageSecurityHooks(terminal: TuiTerminal, output: NodeJS.Writabl
       await terminal.question("\n  Press Enter to return.");
       continue;
     }
-    if (answer === "2") {
+    if (action === 1) {
       const confirmation = (await terminal.question("\n  Remove only Nix-owned global hooks and preserve user-owned entries? Type yes to confirm: ")).trim().toLowerCase();
       if (confirmation === "yes") {
         await installer.uninstall(projectRoot);

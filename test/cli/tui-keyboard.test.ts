@@ -1,0 +1,60 @@
+import assert from "node:assert/strict";
+import { PassThrough } from "node:stream";
+import test from "node:test";
+
+import { selectWithKeyboard, writeFrame } from "../../src/cli/tui-keyboard.js";
+
+test("keyboard selector moves with arrow keys and returns the highlighted option", async () => {
+  const input = new PassThrough() as PassThrough & {
+    isTTY: boolean;
+    isRaw: boolean;
+    setRawMode: (mode: boolean) => PassThrough;
+  };
+  input.isTTY = true;
+  input.isRaw = false;
+  input.setRawMode = (mode) => {
+    input.isRaw = mode;
+    return input;
+  };
+  const output = new PassThrough() as PassThrough & { columns: number };
+  output.columns = 48;
+  let transcript = "";
+  output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
+
+  try {
+    const pendingSelection = selectWithKeyboard({
+      input: input as unknown as NodeJS.ReadStream,
+      output,
+      prompt: "Choose an action",
+      choices: ["Install", "Update", "Quit"]
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    input.write("\u001b[B\r");
+
+    assert.equal(await pendingSelection, 1);
+    assert.equal(input.isRaw, false);
+    assert.match(transcript, /Choose an action/);
+    assert.match(transcript, /↑↓/);
+    assert.match(transcript, /› Update/);
+    const frameRows = transcript.split("\n").filter((line) => line.startsWith("╭") || line.startsWith("│") || line.startsWith("╰"));
+    assert.ok(frameRows.every((line) => line.length <= 48));
+  } finally {
+    input.destroy();
+    output.destroy();
+  }
+});
+
+test("frame stays within narrow terminal width", () => {
+  const output = new PassThrough() as PassThrough & { columns: number };
+  output.columns = 20;
+  let transcript = "";
+  output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
+
+  try {
+    writeFrame(output, "GLOBAL SECURITY HOOKS", ["A long option that needs wrapping"]);
+    const frameRows = transcript.split("\n").filter((line) => line.startsWith("╭") || line.startsWith("│") || line.startsWith("╰"));
+    assert.ok(frameRows.every((line) => line.length <= 20));
+  } finally {
+    output.destroy();
+  }
+});

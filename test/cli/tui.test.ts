@@ -8,6 +8,30 @@ import test from "node:test";
 import { runTui } from "../../src/cli/tui.js";
 import { getStackStatePath } from "../../src/core/config/stack-state.js";
 
+test("TUI opens with a small framed keyboard menu instead of numbered actions", async () => {
+  const output = new PassThrough();
+  let transcript = "";
+  let choices: readonly string[] = [];
+  output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
+
+  try {
+    await runTui({
+      output,
+      select: async (_prompt, items) => {
+        choices = items;
+        return 1;
+      }
+    });
+
+    assert.deepEqual(choices, ["Install or configure AI-STACK", "Quit"]);
+    assert.match(transcript, /╭ NIX AI-STACK/);
+    assert.match(transcript, /↑↓ Navigate · Enter Select · Esc Back/);
+    assert.doesNotMatch(transcript, /\b1\. Install or configure/);
+  } finally {
+    output.destroy();
+  }
+});
+
 test("TUI installs a Nix specialist agent through preview and explicit confirmation", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "nix-tui-install-"));
   const prior = {
