@@ -12,6 +12,48 @@ export interface KeyboardSelectionOptions {
   readonly banner?: readonly string[];
 }
 
+export interface KeyboardMultiSelectOptions {
+  readonly input: NodeJS.ReadStream;
+  readonly output: NodeJS.WritableStream;
+  readonly prompt: string;
+  readonly choices: readonly string[];
+  readonly title?: string;
+  /** Indexes checked by default; callers usually pass every index. */
+  readonly initialSelected?: readonly number[];
+}
+
+/**
+ * Draws the same rows in place instead of clearing the screen, so changing the
+ * selection does not make the terminal flicker.
+ */
+class InPlaceScreen {
+  private rows = 0;
+  private started = false;
+
+  constructor(private readonly output: NodeJS.WritableStream) {}
+
+  draw(lines: readonly string[]): void {
+    if (!this.started) {
+      this.output.write(`${lines.join("\n")}\n`);
+      this.started = true;
+      this.rows = lines.length;
+      return;
+    }
+    const height = Math.max(this.rows, lines.length);
+    this.output.write(`\u001b[${this.rows}A`);
+    for (let index = 0; index < height; index += 1) {
+      this.output.write(`\u001b[2K${lines[index] ?? ""}\n`);
+    }
+    const extra = height - lines.length;
+    if (extra > 0) this.output.write(`\u001b[${extra}A`);
+    this.rows = lines.length;
+  }
+}
+
+function columnsOf(output: NodeJS.WritableStream): number {
+  return (output as NodeJS.WriteStream).columns ?? 80;
+}
+
 export async function selectWithKeyboard({ input, output, prompt, choices, title = "NIX AI-STACK", banner }: KeyboardSelectionOptions): Promise<number> {
   if (choices.length === 0) return -1;
   const terminalInput = input as KeyboardInput;
@@ -21,6 +63,7 @@ export async function selectWithKeyboard({ input, output, prompt, choices, title
 
   emitKeypressEvents(input);
   const wasRaw = terminalInput.isRaw ?? false;
+  const screen = new InPlaceScreen(output);
   let selected = 0;
   let settled = false;
 
@@ -44,13 +87,8 @@ export async function selectWithKeyboard({ input, output, prompt, choices, title
       reject(error);
     };
     const render = (): void => {
-      output.write("\u001b[2J\u001b[H");
-      if (banner && banner.length > 0) {
-        for (const line of banner) output.write(`${line}\n`);
-        output.write("\n");
-      }
-      const lines = [prompt, "", ...choices.map((choice, index) => `${index === selected ? "›" : " "} ${choice}`), "", "↑↓ Navigate · Enter Select · Esc Back"];
-      writeFrame(output, title, lines);
+      const body = [prompt, "", ...choices.map((choice, index) => `${index === selected ? "›" : " "} ${choice}`), "", "↑↓ Navigate · Enter Select · Esc Back"];
+      screen.draw([...(banner ?? []), ...(banner && banner.length > 0 ? [""] : []), ...buildFrame(title, body, columnsOf(output))]);
     };
     const onKeypress = (value: string, key?: { readonly name?: string; readonly ctrl?: boolean }): void => {
       if (key?.ctrl && key.name === "c") {
@@ -79,15 +117,6 @@ export async function selectWithKeyboard({ input, output, prompt, choices, title
   });
 }
 
-export interface KeyboardMultiSelectOptions {
-  readonly input: NodeJS.ReadStream;
-  readonly output: NodeJS.WritableStream;
-  readonly prompt: string;
-  readonly choices: readonly string[];
-  readonly title?: string;
-  readonly initialSelected?: readonly number[];
-}
-
 export async function multiSelectWithKeyboard({
   input,
   output,
@@ -104,11 +133,20 @@ export async function multiSelectWithKeyboard({
 
   emitKeypressEvents(input);
   const wasRaw = terminalInput.isRaw ?? false;
+  const screen = new InPlaceScreen(output);
   const checked = new Set<number>(initialSelected.filter((index) => index >= 0 && index < choices.length));
   let cursor = 0;
+  let filter = "";
   let settled = false;
 
   return new Promise<readonly number[]>((resolve, reject) => {
+    const visible = (): ReadonlyArray<number> =>
+      choices
+        .map((label, index) => ({ label, index }))
+        .filter(({ label }) => filter.length === 0 || label.toLowerCase().includes(filter.toLowerCase()))
+        .map(({ index }) => index);
+    const nextRow = (): number => visible().length;
+
     const cleanup = (): void => {
       input.removeListener("keypress", onKeypress);
       input.removeListener("close", onClose);
@@ -127,34 +165,89 @@ export async function multiSelectWithKeyboard({
       cleanup();
       reject(error);
     };
+    const clampCursor = (): void => {
+      const limit = nextRow();
+      if (cursor > limit) cursor = limit;
+      if (cursor < 0) cursor = 0;
+    };
     const render = (): void => {
-      output.write("\u001b[2J\u001b[H");
-      const lines = [
+      const rows = visible();
+      const items = rows.map((choiceIndex, position) => {
+        const marker = position === cursor ? "›" : " ";
+        const box = checked.has(choiceIndex) ? "x" : " ";
+        return `${marker} [${box}] ${choices[choiceIndex]}`;
+      });
+      const selectedLabel = `${checked.size}/${choices.length} selected`;
+      const nextMarker = cursor === rows.length ? "›" : " ";
+      const body = [
         prompt,
         "",
-        ...choices.map((choice, index) => `${index === cursor ? "›" : " "} [${checked.has(index) ? "x" : " "}] ${choice}`),
+        `Search: ${filter.length > 0 ? filter : "type to filter"}`,
         "",
-        "↑↓ Navigate · Space Toggle · Enter Confirm · Esc Back"
+        ...items,
+        ...(rows.length === 0 ? ["  No match for this search."] : []),
+        "",
+        `${nextMarker} Next →  (${selectedLabel})`,
+        "",
+        "↑↓ Move · Space Toggle · a Toggle all · Enter Next · Esc Back"
       ];
-      writeFrame(output, title, lines);
+      screen.draw(buildFrame(title, body, columnsOf(output)));
     };
-    const onKeypress = (value: string, key?: { readonly name?: string; readonly ctrl?: boolean }): void => {
+    const onKeypress = (value: string, key?: { readonly name?: string; readonly ctrl?: boolean; readonly meta?: boolean }): void => {
       if (key?.ctrl && key.name === "c") {
         finish([]);
-      } else if (key?.name === "up") {
-        cursor = (cursor + choices.length - 1) % choices.length;
+        return;
+      }
+      if (key?.name === "up") {
+        const limit = nextRow();
+        cursor = cursor <= 0 ? limit : cursor - 1;
         render();
-      } else if (key?.name === "down") {
-        cursor = (cursor + 1) % choices.length;
+        return;
+      }
+      if (key?.name === "down") {
+        const limit = nextRow();
+        cursor = cursor >= limit ? 0 : cursor + 1;
         render();
-      } else if (key?.name === "space" || value === " ") {
-        if (checked.has(cursor)) checked.delete(cursor);
-        else checked.add(cursor);
-        render();
-      } else if (key?.name === "return" || key?.name === "enter") {
+        return;
+      }
+      if (key?.name === "return" || key?.name === "enter") {
         finish([...checked].sort((left, right) => left - right));
-      } else if (key?.name === "escape" || value.toLowerCase() === "q") {
+        return;
+      }
+      if (key?.name === "escape") {
         finish([]);
+        return;
+      }
+      if (key?.name === "backspace" || key?.name === "delete") {
+        filter = filter.slice(0, -1);
+        clampCursor();
+        render();
+        return;
+      }
+      if (key?.name === "space" || value === " ") {
+        const rows = visible();
+        const target = rows[cursor];
+        if (target !== undefined) {
+          if (checked.has(target)) checked.delete(target);
+          else checked.add(target);
+        }
+        render();
+        return;
+      }
+      if (!key?.ctrl && !key?.meta && value === "a") {
+        const rows = visible();
+        const allChecked = rows.length > 0 && rows.every((index) => checked.has(index));
+        for (const index of rows) {
+          if (allChecked) checked.delete(index);
+          else checked.add(index);
+        }
+        render();
+        return;
+      }
+      if (!key?.ctrl && !key?.meta && value.length === 1 && value >= " ") {
+        filter += value;
+        clampCursor();
+        render();
       }
     };
     const onClose = (): void => finish([]);
@@ -169,17 +262,22 @@ export async function multiSelectWithKeyboard({
   });
 }
 
-export function writeFrame(output: NodeJS.WritableStream, title: string, lines: readonly string[]): void {
-  const columns = (output as NodeJS.WriteStream).columns ?? 80;
+/** Builds the exact physical rows of a frame, wrapping to the terminal width. */
+export function buildFrame(title: string, lines: readonly string[], columns: number): string[] {
   const width = Math.max(4, Math.min(76, columns));
   const innerWidth = width - 4;
   const wrapped = lines.flatMap((line) => wrapLine(line, innerWidth));
   const visibleTitle = title.slice(0, Math.max(0, width - 4));
   const topLabel = visibleTitle ? ` ${visibleTitle} ` : "";
   const topFill = Math.max(0, width - topLabel.length - 2);
-  output.write(`╭${topLabel}${"─".repeat(topFill)}╮\n`);
-  for (const line of wrapped) output.write(`│ ${line.padEnd(innerWidth)} │\n`);
-  output.write(`╰${"─".repeat(width - 2)}╯\n`);
+  const rows = [`╭${topLabel}${"─".repeat(topFill)}╮`];
+  for (const line of wrapped) rows.push(`│ ${line.padEnd(innerWidth)} │`);
+  rows.push(`╰${"─".repeat(width - 2)}╯`);
+  return rows;
+}
+
+export function writeFrame(output: NodeJS.WritableStream, title: string, lines: readonly string[]): void {
+  output.write(`${buildFrame(title, lines, columnsOf(output)).join("\n")}\n`);
 }
 
 function wrapLine(line: string, width: number): string[] {

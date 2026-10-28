@@ -155,6 +155,120 @@ test("selector renders its banner above the frame", async () => {
   }
 });
 
+test("multi-select filters with the search text and toggles all visible rows", async () => {
+  const input = new PassThrough() as PassThrough & {
+    isTTY: boolean;
+    isRaw: boolean;
+    setRawMode: (mode: boolean) => PassThrough;
+  };
+  input.isTTY = true;
+  input.isRaw = false;
+  input.setRawMode = (mode) => {
+    input.isRaw = mode;
+    return input;
+  };
+  const output = new PassThrough() as PassThrough & { columns: number };
+  output.columns = 80;
+  let transcript = "";
+  output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
+
+  try {
+    const pendingSelection = multiSelectWithKeyboard({
+      input: input as unknown as NodeJS.ReadStream,
+      output,
+      prompt: "Which skills?",
+      choices: ["Brag video", "Python FastAPI", "Araxys integration"],
+      initialSelected: [0, 1, 2]
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.match(transcript, /3\/3 selected/);
+    input.write("python");
+    input.write(" ");
+    input.write("\r");
+
+    assert.deepEqual(await pendingSelection, [0, 2]);
+    assert.match(transcript, /Search: python/);
+    assert.match(transcript, /Next → {2}\(2\/3 selected\)/);
+  } finally {
+    input.destroy();
+    output.destroy();
+  }
+});
+
+test("multi-select toggles every visible row with `a`", async () => {
+  const input = new PassThrough() as PassThrough & {
+    isTTY: boolean;
+    isRaw: boolean;
+    setRawMode: (mode: boolean) => PassThrough;
+  };
+  input.isTTY = true;
+  input.isRaw = false;
+  input.setRawMode = (mode) => {
+    input.isRaw = mode;
+    return input;
+  };
+  const output = new PassThrough() as PassThrough & { columns: number };
+  output.columns = 80;
+
+  try {
+    const pendingSelection = multiSelectWithKeyboard({
+      input: input as unknown as NodeJS.ReadStream,
+      output,
+      prompt: "Targets",
+      choices: ["One", "Two"],
+      initialSelected: [0, 1]
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    input.write("a");
+    input.write("\r");
+
+    assert.deepEqual(await pendingSelection, []);
+  } finally {
+    input.destroy();
+    output.destroy();
+  }
+});
+
+test("redrawing a selection does not clear the screen again", async () => {
+  const input = new PassThrough() as PassThrough & {
+    isTTY: boolean;
+    isRaw: boolean;
+    setRawMode: (mode: boolean) => PassThrough;
+  };
+  input.isTTY = true;
+  input.isRaw = false;
+  input.setRawMode = (mode) => {
+    input.isRaw = mode;
+    return input;
+  };
+  const output = new PassThrough() as PassThrough & { columns: number };
+  output.columns = 80;
+  let transcript = "";
+  output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
+
+  try {
+    const pendingSelection = selectWithKeyboard({
+      input: input as unknown as NodeJS.ReadStream,
+      output,
+      prompt: "Choose",
+      choices: ["One", "Two"]
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    input.write("\u001b[B");
+    input.write("\u001b[B");
+    input.write("\r");
+    await pendingSelection;
+
+    assert.doesNotMatch(transcript, /\u001b\[2J/, "no full-screen clear is used");
+    assert.match(transcript, /\u001b\[\d+A/, "rows are redrawn in place");
+    assert.match(transcript, /› One/, "first frame highlights the first row");
+    assert.match(transcript, /› One[\s\S]*› Two/, "later frames highlight the moved row");
+  } finally {
+    input.destroy();
+    output.destroy();
+  }
+});
+
 test("frame stays within narrow terminal width", () => {  const output = new PassThrough() as PassThrough & { columns: number };
   output.columns = 20;
   let transcript = "";

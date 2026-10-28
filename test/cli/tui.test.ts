@@ -467,6 +467,11 @@ test("real keyboard selection drives the guided install end to end", async () =>
       await expect("Where should Nix install?");
       input.write("\r");
       await expect("Which skills should Nix install?");
+      input.write("a");
+      input.write("python");
+      await expect("Search: python");
+      input.write(" ");
+      await expect("› [x] Python and FastAPI");
       input.write("\r");
       await expect("Apply these global changes?");
       input.write("yes\r");
@@ -485,6 +490,9 @@ test("real keyboard selection drives the guided install end to end", async () =>
       assert.match(command, /nix-ai:workflow-command id=new-feat/);
       const codexSkill = await readFile(path.join(root, "home", ".agents", "skills", "new-feat", "SKILL.md"), "utf8");
       assert.match(codexSkill, /nix-ai:workflow-command id=new-feat/);
+      const filteredSkill = await readFile(path.join(root, "config", "opencode", "skills", "python-fastapi", "SKILL.md"), "utf8");
+      assert.match(filteredSkill, /FastAPI/);
+      await assert.rejects(readFile(path.join(root, "home", ".agents", "skills", "brag", "SKILL.md"), "utf8"), { code: "ENOENT" });
       assert.equal(input.isRaw, false);
     } finally {
       await restore();

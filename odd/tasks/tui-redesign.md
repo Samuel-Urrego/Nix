@@ -63,6 +63,22 @@ Acceptance:
 
 Checks: structural review of the local reference and task document.
 
+### S6 — Flicker-free searchable selection with Next
+
+User request: “la pantalla titila cuando se cambia de opcion y haz que las opciones sean seleccionable, tengan buscador, que haya un boton de next, y que se tome lo que el usuario seleccion y todo debe estar default marcado para que el usuario solo quite lo que no quiere”.
+
+Acceptance:
+- Changing the highlighted row must not clear and repaint the whole screen; rows are redrawn in place.
+- Options are selectable: `Space` toggles the focused row and `a` toggles every row matching the current search.
+- Typing printable characters filters the list, `Backspace` edits the filter, and a `Search:` line shows the active filter.
+- A visible `Next →` row with a `selected/total` counter ends the selection; `Enter` takes the user's current selection.
+- Every option starts checked, so the user only unchecks what they do not want.
+- `Esc` still cancels and writes nothing.
+
+Risk: item 5 — this changes the interactive installation flow.
+
+Checks: keyboard unit tests for filtering, toggle-all, in-place redraw, and Next; the real-keyboard end-to-end test installs only the filtered skill.
+
 ## Tasks
 
 | ID | Specs | Route | Status | Commit / Evidence |
@@ -72,6 +88,7 @@ Checks: structural review of the local reference and task document.
 | T3 | S3 | Inline | Done — keyboard multi-select skill catalog filtered by compatible targets, dependency-aware preview, decline writes nothing | Same work unit as T2; `guided install` tests |
 | T4 | S4 | Inline | Done — in-TUI update reusing `createUpgradePlan`/`spawnUpgrade`, shows current/target version, confirms first, reports exit code | Commit `feat(tui): add in-TUI update`; RED/GREEN update tests |
 | T5 | S5 | Inline | Done — feature branch exists; local Gentle AI is a Go Bubble Tea/Lipgloss reference, not a source to port | branch `codex/tui-redesign` |
+| T6 | S6 | Inline | Done — in-place redraw replaces full-screen clears, multi-select gained search, `a` toggle-all, `Next →` row, and default-checked options | RED/GREEN `tui-keyboard` tests; E2E installs only the filtered skill |
 
 ## Log
 
@@ -91,3 +108,4 @@ Checks: structural review of the local reference and task document.
 - L14 — Full verification after T2–T4: `npm run typecheck`, `npm test` (156 passed, 0 failed), `npm run build`, and `git diff --check`. The user's pre-existing `package.json`, `package-lock.json`, and `odd/tasks/npm-security-hardening.md` changes remain unstaged and untouched.
 - L15 — Closed the L5 runtime-validation gap as far as automation allows: an end-to-end test drives the real `selectWithKeyboard`/`multiSelectWithKeyboard` raw-key-driven path over a fake TTY (arrows, `enter`, `space`, typed `yes`) through home → detection → targets → skills → preview → apply → quit, asserting both targets receive commands and the OpenCode/Codex files on disk. The earlier scripted tests never exercised the raw-mode selector end to end. Also removed a dead `getCodexUserSkillsDirectory` import from `tui.ts`. Suite: 157 passed, 0 failed; typecheck, build, and `git diff --check` clean. A human eye check in a real terminal is still the last mile and remains unautomated.
 - L16 — User reported the wolf art was lost and re-pasted it. Byte comparison showed the `header` constant in `tui.ts` already matched it exactly (18 lines × 29 columns); the real defect was that the art was printed only in the non-interactive branch, so the interactive TUI never showed it. `selectWithKeyboard` now accepts a `banner` and the home screen passes the wolf plus a subtitle on its first render only; the banner is skipped below 34 terminal columns so it cannot wrap into noise. Tests cover: banner precedes the frame, wolf appears exactly once per session, and narrow terminals render without it. Suite: 160 passed, 0 failed.
+- L17 — User request: “la pantalla titila cuando se cambia de opcion y haz que las opciones sean seleccionable, tengan buscador, que haya un boton de next, y que se tome lo que el usuario seleccion y todo debe estar default marcado para que el usuario solo quite lo que no quiere”. Root cause of the flicker: every keypress wrote `ESC[2J` and repainted the whole screen. `InPlaceScreen` now moves the cursor up over its own rows and rewrites them with `ESC[2K`, shrinking back when a filter narrows the list, so no full-screen clear remains in either selector. `multiSelectWithKeyboard` gained a print-to-filter `Search:` line, Space toggling, `a` toggle-all over the visible rows, a visible `Next →` row with a selected/total counter, and Enter as the Next action; Esc cancels and writes nothing. The guided installer now passes every skill index as `initialSelected`, so everything starts checked and the user only unchecks. Tests: three new keyboard tests (filter plus Next counter, toggle-all, no `ESC[2J` on redraw) and the real-keyboard E2E now clears all, filters `python`, checks one skill, and asserts only that skill landed. Suite: 163 passed, 0 failed; typecheck, build, and `git diff --check` clean.

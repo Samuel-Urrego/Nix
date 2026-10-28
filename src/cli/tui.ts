@@ -113,8 +113,7 @@ function createTuiTerminal(options: TuiOptions, input: NodeJS.ReadableStream, ou
         "Answer with comma-separated numbers, `all`, or `none`."
       ]);
       return parseMultiAnswer(await options.ask(prompt), choices);
-    }
-    lineReader?.close();
+    }    lineReader?.close();
     lineReader = undefined;
     return multiSelectWithKeyboard({ input: input as NodeJS.ReadStream, output, prompt, choices, title, initialSelected });
   };
@@ -260,12 +259,10 @@ async function runGuidedInstall(
       .join(", ");
     return `${entry.name} — ${entry.description} (compatible: ${entry.compatibleAgents.join(", ")}; ${state || "not installed"})`;
   });
-  const initialSkills = skillEntries
-    .map((entry, index) => ({ entry, index }))
-    .filter(({ entry }) => statuses.some((status) => status.id === entry.id && targets.includes(status.agent) && (status.state === "current" || status.state === "update-available")))
-    .map(({ index }) => index);
+  // Everything starts checked: the user only unchecks what they do not want.
+  const initialSkills = skillEntries.map((_entry, index) => index);
   const skillPicks = await terminal.multiSelect(
-    "Which skills should Nix install? (space to toggle, none is allowed)",
+    "Which skills should Nix install? (space to toggle, search to filter, Next to continue)",
     skillChoices,
     "GLOBAL SKILLS",
     initialSkills
