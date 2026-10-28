@@ -13,6 +13,7 @@ import { runReviewers } from "../core/reviewers/reviewer-runner.js";
 import { scanRepository } from "../core/stack/repo-scanner.js";
 import { stackInventory } from "../core/stack/stack-inventory.js";
 import { readOption } from "../core/system/cli-args.js";
+import { createUpgradePlan, spawnUpgrade } from "../core/system/npm-upgrade.js";
 import { getNixHome } from "../core/config/global-paths.js";
 import { getStackStatePath, loadStackState, saveStackState } from "../core/config/stack-state.js";
 import { runTui } from "./tui.js";
@@ -59,6 +60,7 @@ type CommandHandler = () => Promise<void>;
 
 const handlers = new Map<string, CommandHandler>([
   ["version", printVersion],
+  ["upgrade", upgradeNix],
   ["doctor", printDoctor],
   ["config:init", initConfigCommand],
   ["reviewers:list", printReviewers],
@@ -126,6 +128,21 @@ async function main(): Promise<void> {
 
 async function printVersion(): Promise<void> {
   console.log(projectMetadata.version);
+}
+
+async function upgradeNix(): Promise<void> {
+  const plan = createUpgradePlan(projectMetadata.packageName);
+  console.log(`Upgrading ${projectMetadata.packageName} to the latest published version.`);
+  console.log(`Command: ${plan.commandLine}`);
+  console.log("");
+  const exitCode = await spawnUpgrade(plan);
+  if (exitCode !== 0) {
+    console.error(`Upgrade failed with exit code ${exitCode}. Run the printed command manually to see the npm output.`);
+    process.exitCode = exitCode;
+    return;
+  }
+  console.log("");
+  console.log("Upgrade finished. Confirm it with: nix-ai --version");
 }
 
 async function releaseManifestCommand(): Promise<void> {
@@ -891,6 +908,7 @@ async function printHelp(): Promise<void> {
   console.log("Commands:");
   console.log("  doctor           Show bootstrap status");
   console.log("  version          Print the CLI version (also --version or -v)");
+  console.log("  upgrade          Install the latest published version from npm");
   console.log("  config:init      Create the global Nix config.json under the Nix home");
   console.log("  reviewers:list   List built-in reviewers");
   console.log("  reviewers:run    Run applicable reviewers against the current repository");

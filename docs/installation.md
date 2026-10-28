@@ -1,61 +1,46 @@
 # Install and configure Nix
 
-Install the Nix CLI once, then use its interactive TUI to configure the AI tools you want. The TUI previews global targets and asks before each change; optional MCPs and security hooks are never silently enabled.
+Install the Nix CLI from npm, then use its interactive TUI to configure the AI tools you want. The TUI previews global targets and asks before each change; optional MCPs and security hooks are never silently enabled.
 
 ## Supported baseline
 
 - **Operating system:** Windows 10 or Windows 11. Other platforms are not verified for v1.
-- **Shell:** Windows PowerShell 5.1 or newer.
-- **Runtime:** Node.js `>=20.11.0` with an npm-compatible package manager.
-- **Shells:** PowerShell, `cmd.exe`, and Git Bash/MSYS for security-hook inspection.
+- **Shell:** Windows PowerShell 5.1, `cmd.exe`, or Git Bash/MSYS.
+- **Runtime:** Node.js `>=20.11.0` with npm.
 - **Agents:** OpenCode and Codex. Additional agent adapters are not implemented.
-- **Repository tools:** Git is required by the source installer and for pinned external skills.
+- **Repository tools:** Git is required only when installing skills that are pinned to an upstream commit.
 
 The authoritative compatibility record is the release manifest and the [support matrix](support-matrix.md).
 
-## One-command install on Windows
+## Install
 
 ```powershell
-$installer = Join-Path $env:TEMP 'nix-install.ps1'; Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/Samuel-Urrego/Nix/main/scripts/install.ps1' -OutFile $installer; & $installer
+npm install --global nix-ai-stack
+nix-ai
 ```
 
-The installer checks Node.js, npm, and Git, then installs the **latest `v*` release tag** from its prebuilt release artifact under your user profile without administrator access. It opens the configuration TUI afterwards. It asks before adding Nix's command directory to your user `PATH`; declining does not prevent this installation from launching the TUI.
+That is the whole installation. npm resolves the newest published version, installs the already-compiled package into your user npm prefix, and puts the `nix-ai` command on your `PATH`. No administrator access, no build step, and no package lifecycle script runs during installation.
 
-**Tag-based releases:** the installer resolves the newest `v*` tag with `git ls-remote`, downloads `nix-ai-stack-<version>.tgz` from that tag's GitHub release, and installs it with `npm install --global --ignore-scripts`. Because the artifact is already compiled, no package lifecycle script runs during installation: `prepare`, `postinstall`, and any other install script are blocked. A branch is never installed; use `npm link` from a source checkout to test unreleased code.
+`npm install --global` on Windows writes to `%APPDATA%\npm`, which is already on the user `PATH`. If you run it from a terminal that was open before npm first created that directory, open a new terminal once and `nix-ai` will resolve.
 
-**Trust boundary:** this downloads and runs the PowerShell installer from the Nix GitHub repository. Review [`scripts/install.ps1`](https://github.com/Samuel-Urrego/Nix/blob/main/scripts/install.ps1) before executing it if you want to inspect the source first. The installer does not change PowerShell's execution policy, request elevation, delete existing files, or execute downloaded package scripts.
-
-To preview only:
+To try Nix without installing it globally:
 
 ```powershell
-.\scripts\install.ps1 -DryRun
+npx nix-ai-stack doctor
 ```
 
-`-DryRun` reports the tag resolution command, the artifact URL pattern, and the exact npm command without downloading anything or touching the network. `-NoLaunch` installs without opening the TUI. Re-running the installer moves the CLI to the newest release tag and preserves Nix's configuration and managed component data.
+### Prerequisites
 
-### Installer error codes
+```powershell
+node --version    # must be >= 20.11.0
+npm --version
+```
 
-If installation fails, copy the `NIX-INST-###` code printed by PowerShell and send it with the error details. The code identifies the failing stage:
-
-| Code | Meaning |
-|---|---|
-| `NIX-INST-001`–`003` | Node.js, npm, or Git is missing (in that order). |
-| `NIX-INST-004`–`008` | npm/Node.js version could not be read or parsed, or Node.js is below 20.11. |
-| `NIX-INST-009` | Windows did not provide the user install location. |
-| `NIX-INST-010` | npm could not install Nix; check the reported exit code, network, Git, and npm configuration. |
-| `NIX-INST-011` | npm reported success but did not create the Nix CLI command shim. |
-| `NIX-INST-012` | The installer could not update the user `PATH`; the message includes the directory to add manually. |
-| `NIX-INST-013`–`014` | Nix was installed, but the TUI could not start or exited with an error. |
-| `NIX-INST-015` | No `v*` release tag could be resolved from the repository. |
-| `NIX-INST-016` | The prebuilt release artifact could not be downloaded for the resolved tag. |
-| `NIX-INST-017` | The installed CLI does not report the version of the resolved release tag. |
-| `NIX-INST-999` | An unexpected installer failure; include the full error details. |
-
-Errors that occur before the script starts (for example, failure to download the script itself) cannot be assigned a code by the installer.
+If Node.js is missing, install the current LTS release from [nodejs.org](https://nodejs.org/) or a version manager, then re-run the install. Git is optional at this stage.
 
 ## Configure from the TUI
 
-The installer opens the TUI after installing Nix. From there you can:
+`nix-ai` without arguments opens the TUI. From there you can:
 
 - choose OpenCode or Codex as a preferred target;
 - preview and install Nix specialist agents, reusable skills, and workflow commands;
@@ -78,7 +63,7 @@ Optional Git-based skills can download pinned upstream content during installati
 
 ## Source development
 
-Contributors who want to work on the Nix repository should clone it and install development dependencies instead of using the end-user installer:
+Contributors who want to work on the Nix repository should clone it and install development dependencies instead of using the published package:
 
 ```powershell
 git clone https://github.com/Samuel-Urrego/Nix.git nix
@@ -88,7 +73,7 @@ npm run build
 npm test
 ```
 
-Run the local TUI with `npm start`. The published installer installs the configured Git ref globally; it is not a development checkout.
+Run the local TUI with `npm start`. Use `npm link` to expose that checkout as the global `nix-ai` command while developing.
 
 ## Install the Nix Core component
 
@@ -156,18 +141,28 @@ nix-ai skill:status --root=.
 
 `doctor` reports the stack-state schema, configuration source, workflow settings, reviewer sources, and release compatibility. An invalid stack-state file is reported as invalid; Nix does not silently replace it.
 
-## Update and upgrade
-
-For a source checkout:
+## Update the CLI
 
 ```powershell
-git pull
-npm ci
-npm run build
-nix-ai doctor --root=.
+nix-ai upgrade
 ```
 
-For a managed component:
+`upgrade` prints the exact npm command it will run, then runs `npm install --global nix-ai-stack@latest`. It only resolves published versions: a branch, a local checkout, or an unreleased tag is never installed. Confirm the result with `nix-ai --version`.
+
+The same thing by hand:
+
+```powershell
+npm install --global nix-ai-stack@latest
+nix-ai --version
+```
+
+To pin a specific version, install it explicitly:
+
+```powershell
+npm install --global nix-ai-stack@0.1.0
+```
+
+## Update a managed component
 
 ```powershell
 nix-ai component --action=preview --component=skill.nix-core --root=.
@@ -202,6 +197,12 @@ Backups live under `<nix-home>/backups/components`. A restore refuses to overwri
 
 ## Remove
 
+Uninstall the CLI:
+
+```powershell
+npm uninstall --global nix-ai-stack
+```
+
 Remove only what Nix manages:
 
 ```powershell
@@ -220,23 +221,24 @@ Removing a component does not delete user-owned files, unrelated agent configura
 
 Use a fresh Windows user profile or a disposable VM:
 
-1. Install Node.js 20.11+, npm, and Git; confirm their commands are available.
-2. Run `scripts/install.ps1 -DryRun` and confirm it reports the tag resolution command, the artifact URL pattern, and the user install target without changing files or using the network.
-3. Run the installer from a trusted source and confirm it opens the Nix TUI after installation.
-4. In the TUI, preview and install one specialist, one skill, one command surface, and an optional MCP; verify a declined confirmation changes no files.
-5. Confirm an existing unmanaged target is preserved and an unmet MCP prerequisite is reported.
-6. Confirm security hooks remain disabled until explicitly enabled.
-7. Run `nix-ai --version`, `nix-ai doctor`, and the status commands for the selected integrations.
-8. Run `npm run release:check` in the source checkout.
-9. Confirm the [support matrix](support-matrix.md) matches what you observed.
+1. Install Node.js 20.11+ and npm; confirm `node --version` and `npm --version`.
+2. Run `npm install --global nix-ai-stack` and confirm it finishes without administrator access.
+3. Run `nix-ai --version` and confirm it reports the published version.
+4. Run `nix-ai` and confirm the TUI opens.
+5. In the TUI, preview and install one specialist, one skill, one command surface, and an optional MCP; verify a declined confirmation changes no files.
+6. Confirm an existing unmanaged target is preserved and an unmet MCP prerequisite is reported.
+7. Confirm security hooks remain disabled until explicitly enabled.
+8. Run `nix-ai doctor` and the status commands for the selected integrations.
+9. Run `npm run release:check` in a source checkout.
+10. Confirm the [support matrix](support-matrix.md) matches what you observed.
 
 The interactive TUI journey requires a real terminal. Automated TUI tests inject terminal input and isolate user configuration under a temporary directory; the release journey covers CLI lifecycles separately.
 
 ## Troubleshooting
 
-- **`nix-ai` is not recognized:** open a new terminal after the PATH change, or run the installed shim at `%LOCALAPPDATA%\Programs\Nix AI Stack\npm\nix-ai.cmd`.
-- **`NIX-INST-015`:** the repository has no `v*` release tag, or Git could not reach it. Confirm network access and that at least one released tag exists.
-- **`NIX-INST-016`:** the resolved tag has no `nix-ai-stack-<version>.tgz` asset. Publish the artifact for that tag and retry; the installer never falls back to a branch.
+- **`nix-ai` is not recognized:** npm's global prefix is not on your `PATH` in this terminal. Run `npm prefix --global` to see it, open a new terminal, or add that directory to your user `PATH`.
+- **`npm install` reports `EACCES` or a permission error:** the global prefix is outside your user-writable area. On Windows the default prefix is `%APPDATA%\npm` and needs no elevation; if it was changed, point npm at a user-writable prefix with `npm config set prefix`.
+- **`nix-ai upgrade` fails:** run the printed `npm install --global nix-ai-stack@latest` command by hand to see the full npm output, then retry. A failed upgrade leaves the previous version installed.
 - **`doctor` reports an invalid stack state:** inspect the file at the reported path. Restore the `.bak` only after confirming it is the intended previous state.
 - **Install reports a conflict:** the target exists and is not owned by Nix, or its content differs. Back up and remove the target manually only after reviewing it.
 - **Update refuses the version:** Nix refuses downgrades and same-version replacements. Publish a higher component version for a real upgrade.

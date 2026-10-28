@@ -1,6 +1,6 @@
 # Release and compatibility
 
-Nix produces a built `dist/` tree plus a checksum manifest. The release process is intentionally small: build, hash, verify, and record the supported compatibility contract. No registry publish is performed from this repository.
+Nix produces a built `dist/` tree plus a checksum manifest, and publishes the package to the public npm registry. The release process is intentionally small: build, hash, verify, publish, and record the supported compatibility contract.
 
 ## Versioning
 
@@ -56,7 +56,7 @@ Do not describe these checksums as signatures or as a supply-chain guarantee. A 
 
 ## Packaging
 
-`package.json` declares the files included in an npm pack:
+`package.json` declares the files included in the published package:
 
 ```text
 dist/
@@ -69,17 +69,21 @@ SECURITY.md
 CODE_OF_CONDUCT.md
 ```
 
-The package remains `private`; no publish to the npm registry is configured.
+The package is published to the public npm registry as `nix-ai-stack` and exposes the `nix-ai` binary. It is not private: `publishConfig.access` is `public`, and `dist/` always ships because `prepack` builds it and `prepublishOnly` runs the typecheck and the full test suite before any publish. No lifecycle script is needed at consumer install time.
 
-## Installer artifact
+Users install it with:
 
-The Windows installer never installs from a branch. It resolves the newest `v*` tag and downloads the prebuilt tarball attached to that tag's GitHub release:
-
-```text
-https://github.com/Samuel-Urrego/Nix/releases/download/<tag>/nix-ai-stack-<version>.tgz
+```powershell
+npm install --global nix-ai-stack
 ```
 
-Because the artifact already contains `dist/`, the installer runs `npm install --global --ignore-scripts`, so no package lifecycle script executes on the user's machine.
+To inspect the artifact without publishing:
+
+```powershell
+npm pack --dry-run
+```
+
+## Publishing a release
 
 Cutting a release:
 
@@ -87,24 +91,32 @@ Cutting a release:
 git checkout main
 git pull
 # package.json and src/core/system/project-metadata.ts must both hold the release version
-npm run typecheck
-npm test
-npm pack                                   # runs the prepare build, then writes nix-ai-stack-<version>.tgz
+npm run release:check
 git tag -a v<version> -m "Nix <version>"
 git push origin v<version>
 ```
 
-Pushing a `v*` tag triggers `.github/workflows/release.yml`, which installs dependencies, builds, runs the test suite, refuses a tag that does not match the package version, packs the artifact, and creates or updates the GitHub release with the tarball attached. The manual `gh release create` below is only the fallback when the workflow is unavailable:
+Pushing a `v*` tag triggers `.github/workflows/release.yml`, which installs dependencies, refuses a tag that does not match the package version, and runs `npm publish`. The publish itself runs `prepublishOnly` (typecheck plus the full test suite) and `prepare` (build), so a failing suite blocks the release before anything reaches the registry.
+
+The workflow authenticates with the `NODE_AUTH_TOKEN` repository secret, which `actions/setup-node` expands through the generated `.npmrc`. It must hold an npm token with publish rights on `nix-ai-stack`; without it the workflow fails at the publish step and no new version is released.
+
+Manual publish, only when the workflow is unavailable:
 
 ```powershell
-gh release create v<version> .\nix-ai-stack-<version>.tgz --title "v<version>" --notes "<summary>"
+npm login
+npm run release:check
+npm publish
 ```
 
-A tag without an attached `.tgz` is not installable: the installer stops with `NIX-INST-016` instead of falling back to source. To inspect the artifact before publishing:
+Published versions are immutable. To fix a broken release, publish a new patch version; never re-publish or move an existing tag. A local `npm publish` requires `npm login` in the same session.
 
-```powershell
-npm pack --dry-run
+A version that is already on the registry cannot be overwritten:
+
+```text
+npm error You cannot publish over the previously published versions
 ```
+
+That error means the version is spent: bump `package.json` and `src/core/system/project-metadata.ts` together.
 
 ## Upgrade compatibility policy
 
@@ -129,7 +141,7 @@ npm pack --dry-run
 - Downgrades and same-version content replacements are refused.
 - Managed content is verified against the owner record before update, backup, restore, or uninstall.
 - Backups live under `<nix-home>/backups/components` and can restore a previous version after an uninstall.
-- A hard process kill can leave an unowned partial directory. The installer cleans up failures it detects during the write, but manual review is required after an interrupted process.
+- A hard process kill can leave an unowned partial directory. The component installer cleans up failures it detects during the write, but manual review is required after an interrupted process.
 
 ### Runtime and targets
 
@@ -145,11 +157,12 @@ Run from a clean source checkout:
 
 1. `npm ci`
 2. `npm run release:check`
-3. `npm pack --dry-run`
-4. Complete the [clean-machine acceptance checklist](installation.md#clean-machine-acceptance-checklist)
-5. Confirm documentation matches observed behavior
-6. Confirm the worktree contains no unintended release artifacts
-7. Record the version, manifest checksum, and known limitations
+3. `npm pack --dry-run` and confirm `dist/cli/index.js` is included
+4. Confirm the `NODE_AUTH_TOKEN` repository secret exists and is not expired
+5. Complete the [clean-machine acceptance checklist](installation.md#clean-machine-acceptance-checklist)
+6. Confirm documentation matches observed behavior
+7. Confirm the worktree contains no unintended release artifacts
+8. Record the version, manifest checksum, and known limitations
 
 `npm run release:check` runs typecheck, the full test suite, the build, manifest generation, and manifest verification in that order.
 
@@ -161,9 +174,9 @@ Run from a clean source checkout:
 
 ## Known limitations
 
-- No digital signing or provenance attestation.
+- No digital signing or provenance attestation. npm publishes without `--provenance`, so the registry entry is not attesting a build-to-source link.
 - No macOS or Linux verification.
 - No automatic migration for unsupported stack-state schemas.
 - No project-local installation mode; component, skill, MCP, and security-hook operations are global.
 - No sandbox for hooks or blind-judge evaluation.
-- No registry publish workflow.
+- No non-interactive `install --preset` for unattended configuration; the TUI and the per-resource CLI commands are the only configuration surfaces.
