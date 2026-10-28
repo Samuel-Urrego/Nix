@@ -43,6 +43,8 @@ interface TuiTerminal {
   confirm(prompt: string, yesLabel?: string, noLabel?: string): Promise<boolean>;
   /** Writes a framed report panel. */
   report(title: string, lines: readonly string[]): void;
+  /** Clears the screen so the next step replaces the previous one instead of stacking under it. */
+  clear(): void;
   close(): void;
 }
 
@@ -135,6 +137,7 @@ function createTuiTerminal(options: TuiOptions, input: NodeJS.ReadableStream, ou
     confirm: async (prompt, yesLabel = "Yes, apply", noLabel = "No, cancel") =>
       (await select(prompt, [yesLabel, noLabel], "CONFIRM", undefined, 1)) === 0,
     report: (title, lines) => writeFrame(output, title, lines),
+    clear: () => { output.write("\u001b[2J\u001b[H"); },
     close: () => lineReader?.close()
   };
 }
@@ -199,6 +202,7 @@ export async function runTui(options: TuiOptions = {}): Promise<void> {
     let done = false;
     let firstHome = true;
     while (!done) {
+      if (!firstHome) terminal.clear();
       const banner = firstHome ? welcomeBanner(output) : undefined;
       firstHome = false;
       const homeAction = await terminal.select(
@@ -211,7 +215,7 @@ export async function runTui(options: TuiOptions = {}): Promise<void> {
         done = true;
         continue;
       }
-      output.write("\u001b[2J\u001b[H");
+      terminal.clear();
       if (homeAction === 0) {
         await runGuidedInstall(terminal, output, detect, statePath, options.skillOptions);
         continue;
@@ -235,6 +239,7 @@ async function pause(
   lines: readonly string[],
   footer = "Press Enter to return to the home screen."
 ): Promise<void> {
+  terminal.clear();
   terminal.report(title, [...lines, "", footer]);
   await terminal.question("");
 }
@@ -267,6 +272,7 @@ async function runGuidedInstall(
     return;
   }
 
+  terminal.clear();
   const mode = await terminal.select(
     "How do you want to install?",
     ["Install everything (recommended)", "Choose targets and skills"],
@@ -285,6 +291,7 @@ async function runGuidedInstall(
     targets = available.map((detection) => detection.agent);
   } else {
     const targetChoices = available.map((detection) => `${detection.label} — signalled by ${detection.evidence[0]}`);
+    terminal.clear();
     const targetPicks = await terminal.multiSelect(
       "Where should Nix install? (all targets are global)",
       targetChoices,
@@ -312,6 +319,7 @@ async function runGuidedInstall(
       return `${entry.name} — ${entry.description} (compatible: ${entry.compatibleAgents.join(", ")}; ${state || "not installed"})`;
     });
     // Everything starts checked: the user only unchecks what they do not want.
+    terminal.clear();
     const skillPicks = await terminal.multiSelect(
       "Which skills should Nix install? (space to toggle, search to filter, Next to continue)",
       skillChoices,
@@ -391,6 +399,7 @@ async function runGuidedInstall(
     previewLines.push("");
   }
   previewLines.push("Unmanaged files are always preserved.");
+  terminal.clear();
   writeFrame(output, "INSTALL PREVIEW", previewLines);
 
   const confirmed = await terminal.select(
@@ -405,6 +414,7 @@ async function runGuidedInstall(
     return;
   }
 
+  terminal.clear();
   const progress = createProgress(output, "INSTALLING", targets.length + skillPlans.length);
   let completed = 0;
   let installedCount = 0;
@@ -461,7 +471,9 @@ async function runGuidedInstall(
       ? ["", "Runtime tools these skills use (install them only when you need the skill):", ...[...runtimeNotes].map((note) => `  · ${note}`)]
       : []),
     "",
-    "These changes are global; re-run the installer anytime to update them."
+    "These changes are global; re-run the installer anytime to update them.",
+    "",
+    "Press Enter to return to the home screen."
   ];
   progress.finish(report, "INSTALL COMPLETE");
   await terminal.question("");
@@ -481,6 +493,7 @@ async function runUpdate(
     target = undefined;
   }
 
+  terminal.clear();
   writeFrame(output, "AI-STACK UPDATE", [
     `Current version: ${projectMetadata.version}`,
     `Target version: ${target ?? "latest published version (registry unavailable)"}`,
@@ -508,6 +521,7 @@ async function runUpdate(
 
   let exitCode: number;
   let failureDetail: string | undefined;
+  terminal.clear();
   writeFrame(output, "AI-STACK UPDATE", ["Running the upgrade through npm..."]);
   try {
     exitCode = await upgrade(plan);
@@ -637,6 +651,7 @@ async function runAdvancedManagement(
     const entries = components.filter((component) => component.category === category);
     let back = false;
     while (!back) {
+      terminal.clear();
       const choices = entries.map((component) => {
         const mark = selected.has(component.id) ? "x" : " ";
         const stateLabel = component.id.startsWith("workflow.")
@@ -727,6 +742,7 @@ async function manageSpecialistAgents(terminal: TuiTerminal, output: NodeJS.Writ
   const root = process.cwd();
   let back = false;
   while (!back) {
+    terminal.clear();
     const statuses = await getSpecialistAgentStatus(root, { catalog: specialistAgentCatalog });
     const choices = specialistAgentCatalog.map((entry) => {
       const state = statuses.filter((item) => item.id === entry.id).map((item) => `${item.agent}: ${item.state}`).join(", ");
@@ -783,6 +799,7 @@ async function manageMcpIntegrations(terminal: TuiTerminal, output: NodeJS.Writa
   const root = process.cwd();
   let back = false;
   while (!back) {
+    terminal.clear();
     const statuses = await getMcpStatus(root);
     const choices = mcpCatalog.map((entry) => {
       const state = statuses.filter((item) => item.id === entry.id).map((item) => `${item.agent}: ${item.state}`).join(", ");
@@ -846,6 +863,7 @@ async function manageProjectSkills(terminal: TuiTerminal, output: NodeJS.Writabl
   const projectRoot = process.cwd();
   let back = false;
   while (!back) {
+    terminal.clear();
     const statuses = await getSkillStatus(projectRoot);
     const choices = skillCatalog.map((entry) => {
       const state = statuses
@@ -938,6 +956,7 @@ async function manageSecurityHooks(terminal: TuiTerminal, output: NodeJS.Writabl
   const installer = new SecurityHooksInstaller(sourceRoot);
   let back = false;
   while (!back) {
+    terminal.clear();
     const status = await installer.status(projectRoot);
     terminal.report("GLOBAL SECURITY HOOKS", [
       "Global destructive-operation safeguards",

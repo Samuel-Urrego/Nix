@@ -364,6 +364,45 @@ test("install everything installs every target and skill in one confirmed step",
   });
 });
 
+test("each guided install step replaces the previous screen instead of stacking panels", async () => {
+  await withTuiSandbox(async ({ root, environment, restore }) => {
+    try {
+      await writeDetectedTargets(environment);
+      const { output, transcript } = scriptedOutput();
+      const answers = ["1", "1", "1", "", "4"];
+      await runTui({
+        output,
+        ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; },
+        skillOptions: bundledSkillsOnly
+      });
+
+      const segments = transcript().split("\u001b[2J\u001b[H");
+      const screenWith = (title: string) => segments.filter((segment) => segment.includes(`╭ ${title}`));
+      for (const title of ["TARGET DETECTION", "INSTALL MODE", "INSTALL PREVIEW", "INSTALLING", "INSTALL COMPLETE"]) {
+        assert.equal(screenWith(title).length, 1, `${title} must be drawn exactly once`);
+      }
+      for (const [current, previous] of [
+        ["INSTALL MODE", "TARGET DETECTION"],
+        ["INSTALL PREVIEW", "INSTALL MODE"],
+        ["INSTALLING", "INSTALL PREVIEW"]
+      ]) {
+        const screen = screenWith(current!)[0] ?? "";
+        assert.ok(!screen.includes(`╭ ${previous}`), `${current} must not share a screen with ${previous}`);
+      }
+      assert.ok(
+        (screenWith("INSTALL COMPLETE")[0] ?? "").indexOf("╭ INSTALL PREVIEW") === -1,
+        "the final report must not be stacked under the preview"
+      );
+      assert.ok(
+        (screenWith("NIX AI-STACK").pop() ?? "").indexOf("╭ INSTALL COMPLETE") === -1,
+        "returning to the home screen must clear the install result"
+      );
+    } finally {
+      await restore();
+    }
+  });
+});
+
 test("guided install refuses to claim a target that is not installed", async () => {
   await withTuiSandbox(async ({ root, restore }) => {
     try {
