@@ -298,6 +298,19 @@ export const skillCatalog: ReadonlyArray<SkillCatalogEntry> = [
     installPaths: installPaths("typescript-stack"),
     updatePolicy: "pinned",
     stackTags: ["language", "typescript", "frameworks", "testing"]
+  },
+  {
+    id: "startup-tank",
+    name: "Startup Tank",
+    description: "Run an isolated investor panel on a startup idea and synthesize a verdict with the disagreements and evidence gaps named.",
+    source: { kind: "bundled", path: "skills/startup-tank" },
+    license: "Apache-2.0",
+    version: "1.0.0",
+    dependencies: [],
+    compatibleAgents: ["opencode", "codex"],
+    installPaths: installPaths("startup-tank"),
+    updatePolicy: "pinned",
+    stackTags: ["product", "startup", "evaluation", "decision"]
   }
 ];
 

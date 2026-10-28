@@ -20,8 +20,8 @@ function state(overrides: Partial<StackState> = {}): StackState {
 }
 
 test("the command catalog declares the supported commands and their mappings", () => {
-  assert.equal(workflowCommandCatalog.length, 6);
-  assert.deepEqual(workflowCommandCatalog.map((command) => command.slash), ["/new-feat", "/refactor", "/new-idea", "/new-project", "/araxys", "/security-audit"]);
+  assert.equal(workflowCommandCatalog.length, 7);
+  assert.deepEqual(workflowCommandCatalog.map((command) => command.slash), ["/new-feat", "/refactor", "/new-idea", "/new-project", "/araxys", "/security-audit", "/new-startup"]);
 
   const newFeat = getCommandAvailability(state(), "new-feat");
   assert.equal(newFeat.command.workflowKind, "sdd");

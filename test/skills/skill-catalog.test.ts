@@ -23,6 +23,7 @@ test("skill catalog declares the requested skills with unique ids and install pa
       "rea",
       "rust-stack",
       "security-audit",
+      "startup-tank",
       "typescript-stack"
     ]
   );
