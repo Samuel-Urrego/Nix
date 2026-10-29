@@ -180,7 +180,11 @@ Run ${spec.checks}. Report each command with its observed result; a check you di
 
 ## Report
 
-Return what changed, which specs you covered, the checks you ran, and any decision the orchestrator still owns. Write code, comments, tests and docs in English.`;
+Return what changed, which specs you covered, the checks you ran, and any decision the orchestrator still owns. Write code, comments, tests and docs in English.
+
+## Questions
+
+When you are unsure, do not guess and do not choose silently. Write a \`#Questions\` block: numbered questions, each with the options and what each option changes. Put it at the end of your report. When a question blocks the whole task, ask it and stop; when it blocks only part of it, finish what you can verify and ask under the same block.`;
 }
 
 /** Language specialists. Each one is backed by its bundled `<language>-stack` playbook. */

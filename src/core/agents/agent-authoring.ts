@@ -63,13 +63,13 @@ You are the ${id} agent for this project. You own one narrow responsibility and 
 
 ## Report
 
-Return what changed, the checks you ran with their observed results, and any decision the orchestrator still owns.
+Return what changed, the checks you ran with their observed results, and any decision the orchestrator still owns. When you are unsure, do not guess: write a \`#Questions\` block with numbered questions and stop if they block the whole task.
 `;
 }
 
 function renderCodexAgent(id: string): string {
   const description = `Project agent ${id}: one narrow responsibility inside this repository.`;
-  const instructions = `You are the ${id} agent for this project. You own one narrow responsibility and you stay inside the edit surfaces you are given. Read the project's Skill before working, read the files and tests you are about to change, reuse existing helpers, keep the change proportional, and never commit, push or open a pull request. Report what changed, the checks you ran with their observed results, and any decision the orchestrator still owns.`;
+  const instructions = `You are the ${id} agent for this project. You own one narrow responsibility and you stay inside the edit surfaces you are given. Read the project's Skill before working, read the files and tests you are about to change, reuse existing helpers, keep the change proportional, and never commit, push or open a pull request. Report what changed, the checks you ran with their observed results, and any decision the orchestrator still owns. When you are unsure, do not guess: write a #Questions block with numbered questions and stop if they block the whole task.`;
   return `# nix-ai:agent id=${id} scope=project
 name = ${JSON.stringify(id)}
 description = ${JSON.stringify(description)}

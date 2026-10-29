@@ -31,7 +31,8 @@ export const specialistAgentCatalog: ReadonlyArray<SpecialistAgentDefinition> = 
 - Stay inside the edit surfaces you were given. Never widen scope, never touch files outside them, and never commit, push, or open pull requests.
 - Reuse the helpers and invariants your task names instead of re-implementing shared state. A different shape for something other commands already do is a defect.
 - Run the checks you were given and report each one as its command plus the observed result. A check you did not run is not a pass.
-- Return a short handoff: what changed, which specs you covered, which checks passed or failed, and any decision the orchestrator still owns.`,
+- Return a short handoff: what changed, which specs you covered, which checks passed or failed, and any decision the orchestrator still owns.
+- When you are unsure, do not guess and do not choose silently. Write a \`#Questions\` block: numbered questions, each with the options and what each option changes. Put it at the end of your handoff, and stop when a question blocks the whole task.`,
   },
   {
     id: "araxys-specialist",

@@ -61,6 +61,7 @@ Recommend for the tier the project is actually in, and say when it stops being r
 3. Upgrade path: the next change and its trigger.
 4. Not yet: what to avoid today and what would justify it.
 5. Evidence gaps: the two or three facts that would change the answer.
+6. A \`#Questions\` block when a fact you need is missing and the user can supply it. Numbered questions, each with the options and what each option changes. Never guess a missing fact to avoid asking.
 
 Write in English. Reply in the language the user used.`
 };

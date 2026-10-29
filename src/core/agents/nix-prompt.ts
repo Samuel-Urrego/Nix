@@ -85,6 +85,8 @@ Keep the parent context thin: bounded output (counts, tails, summaries), short s
 
 ## Asking the user
 
+- When you are unsure about a requirement, a constraint, a preference or the intent behind a change, do not guess and do not choose silently. Write a \`#Questions\` block: a numbered list, one question per line, each with the options and what each option changes.
+- Put the \`#Questions\` block at the end of the reply, after the work you could verify. When a question blocks the whole task, ask it and stop; when it blocks only part of it, finish what you can verify and ask under the same block.
 - When you need a decision, present the complete choice: why the input is required, every option with its consequence, and what each one changes. Never summarize away options, never choose for the user, and never split one atomic decision into several questions.
 - After asking, stop and wait. Do not continue on an assumed answer.
 - A progress update is not a permission request, and silence is not consent.

@@ -44,6 +44,7 @@ test("every language has a specialist backed by its own playbook skill", () => {
     assert.match(agent.instructions, new RegExp(`\\\`${skillId}\\\``), `${id} must load ${skillId}`);
     assert.match(agent.instructions, /Framework map/);
     assert.match(agent.instructions, /never invent a dependency/i);
+    assert.match(agent.instructions, /#Questions/, `${id} must surface doubts instead of guessing`);
     assert.ok(findSkillEntry(skillId), `${skillId} must be a catalogued skill`);
   }
 });
@@ -111,6 +112,8 @@ test("Nix orchestrator is an OpenCode primary agent that runs the ODD flow", () 
     "ask authorization to create one",
     "nix-ai skill:new --scope=project",
     "## Technology decisions",
+    "## Asking the user",
+    "#Questions",
     "## Language",
   ]) {
     assert.match(nix.instructions, new RegExp(marker), `the merged orchestrator prompt must define ${marker}`);
@@ -124,7 +127,7 @@ test("Nix orchestrator is an OpenCode primary agent that runs the ODD flow", () 
   assert.ok(runner, "a skill runner must exist so every skill can be delegated");
   assert.deepEqual(runner.supportedAgents, ["opencode", "codex"]);
   assert.equal(runner.mode, undefined, "the skill runner is a delegated role");
-  for (const marker of ["skill id", "Load the named skill", "edit surfaces", "Never widen scope", "not a pass"]) {
+  for (const marker of ["skill id", "Load the named skill", "edit surfaces", "Never widen scope", "not a pass", "#Questions"]) {
     assert.match(runner.instructions, new RegExp(marker), `the skill runner must define ${marker}`);
   }
   // Every other catalog entry stays a delegated subagent role.
