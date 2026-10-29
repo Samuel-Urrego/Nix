@@ -7,7 +7,17 @@ import type { SpecialistAgentDefinition, SpecialistAgentPlan, SpecialistAgentSta
 
 interface AgentRecord { readonly id: string; readonly agent: SpecialistAgentTarget; readonly version: string; readonly sha256: string; readonly installedAt: string }
 interface AgentState { readonly schemaVersion: 1; readonly entries: Readonly<Record<string, AgentRecord>> }
-export interface AgentInstallerOptions { readonly catalog?: ReadonlyArray<SpecialistAgentDefinition>; readonly now?: () => Date }
+export interface AgentInstallerOptions {
+  readonly catalog?: ReadonlyArray<SpecialistAgentDefinition>;
+  readonly now?: () => Date;
+  /** Model assigned to an agent, keyed `<target>:<agent-id>`. */
+  readonly models?: Readonly<Record<string, string>>;
+}
+
+function modelFor(options: AgentInstallerOptions, agent: SpecialistAgentTarget, id: string): string | undefined {
+  const value = options.models?.[`${agent}:${id}`]?.trim();
+  return value && value.length > 0 ? value : undefined;
+}
 const emptyState: AgentState = { schemaVersion: 1, entries: {} };
 
 export const managedAgentKey = (agent: SpecialistAgentTarget, id: string): string => `${agent}:${id}`;
@@ -38,15 +48,18 @@ function findEntry(options: AgentInstallerOptions, id: string): SpecialistAgentD
 function sha256(value: string): string { return createHash("sha256").update(value).digest("hex"); }
 function toml(value: string): string { return JSON.stringify(value); }
 
-export function renderSpecialistAgent(entry: SpecialistAgentDefinition, agent: SpecialistAgentTarget): string {
+export function renderSpecialistAgent(entry: SpecialistAgentDefinition, agent: SpecialistAgentTarget, model?: string): string {
   validateDefinition(entry);
   if (!entry.supportedAgents.includes(agent)) throw new Error(`${entry.name} is not compatible with ${agent}.`);
+  const assigned = model?.trim();
   if (agent === "codex") {
-    return `# nix-ai:agent id=${entry.id}\nname = ${toml(entry.id)}\ndescription = ${toml(entry.description)}\ndeveloper_instructions = ${toml(entry.instructions)}\n`;
+    const modelLine = assigned ? `model = ${toml(assigned)}\n` : "";
+    return `# nix-ai:agent id=${entry.id}\nname = ${toml(entry.id)}\ndescription = ${toml(entry.description)}\n${modelLine}developer_instructions = ${toml(entry.instructions)}\n`;
   }
   const description = entry.description.replace(/\n/g, " ").replace(/"/g, "\\\"");
   const mode = entry.mode ?? "subagent";
-  return `---\ndescription: "${description}"\nmode: ${mode}\n---\n<!-- nix-ai:agent id=${entry.id} -->\n\n${entry.instructions.trimEnd()}\n`;
+  const modelLine = assigned ? `model: ${assigned}\n` : "";
+  return `---\ndescription: "${description}"\n${modelLine}mode: ${mode}\n---\n<!-- nix-ai:agent id=${entry.id} -->\n\n${entry.instructions.trimEnd()}\n`;
 }
 
 async function readState(): Promise<AgentState> {
@@ -93,7 +106,7 @@ export async function previewSpecialistAgent(root: string, id: string, agent: Sp
   if (!recordMatches(content, record)) return { ...base, action: "conflict", reason: "The Nix-managed agent was modified outside Nix; run agent:update to replace it." };
   // The record proves the file is still ours; it never proves the file matches the current source.
   // Compare against what the catalog would render now, so a changed prompt is an update even at the same version.
-  if (content !== renderSpecialistAgent(entry, agent)) return { ...base, action: "update" };
+  if (content !== renderSpecialistAgent(entry, agent, modelFor(options, agent, entry.id))) return { ...base, action: "update" };
   return { ...base, action: "already-current" };
 }
 
@@ -134,7 +147,7 @@ async function writeManaged(root: string, entry: SpecialistAgentDefinition, agen
   const backupPath = backup && previous !== undefined ? `${targetPath}.bak-${Date.now()}` : undefined;
   if (backupPath) await writeFile(backupPath, previous!, { encoding: "utf8", flag: "wx" });
   await mkdir(path.dirname(targetPath), { recursive: true });
-  const content = renderSpecialistAgent(entry, agent);
+  const content = renderSpecialistAgent(entry, agent, modelFor(options, agent, entry.id));
   await writeFile(targetPath, content, "utf8");
   const entries = { ...state.entries, [key]: { id: entry.id, agent, version: entry.version, sha256: sha256(content), installedAt: (options.now ?? (() => new Date()))().toISOString() } };
   await writeState({ schemaVersion: 1, entries });

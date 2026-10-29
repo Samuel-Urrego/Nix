@@ -10,10 +10,45 @@ import {
   installSpecialistAgent,
   previewSpecialistAgent,
   removeSpecialistAgent,
+  renderSpecialistAgent,
   updateSpecialistAgent
 } from "../../src/core/agents/agent-installer.js";
 import { getManagedAgentsPath } from "../../src/core/config/global-paths.js";
 import { useProjectHome } from "../helpers/home.js";
+
+test("an assigned model is rendered into both agent formats and nothing else changes", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "nix-agent-models-"));
+  const restoreHome = useProjectHome(root);
+  try {
+    const entry = definition();
+    const catalog = [entry];
+    const opencode = renderSpecialistAgent(entry, "opencode", "opencode/big-pickle");
+    assert.match(opencode, /^---\ndescription: ".*"\nmodel: opencode\/big-pickle\nmode: subagent\n---/);
+    const codex = renderSpecialistAgent(entry, "codex", "gpt-5-codex");
+    assert.match(codex, /^# nix-ai:agent id=demo-specialist\nname = "demo-specialist"\ndescription = ".*"\nmodel = "gpt-5-codex"\ndeveloper_instructions = /);
+    assert.doesNotMatch(renderSpecialistAgent(entry, "opencode"), /model:/, "no assignment means no model field");
+
+    const models = { "opencode:demo-specialist": "opencode/big-pickle", "codex:demo-specialist": "gpt-5-codex" };
+    const opencodeResult = await installSpecialistAgent(root, entry.id, "opencode", { catalog, models });
+    const codexResult = await installSpecialistAgent(root, entry.id, "codex", { catalog, models });
+    const installedOpencode = await readFile(opencodeResult.targetPath, "utf8");
+    assert.match(installedOpencode, /model: opencode\/big-pickle/);
+    const installedCodex = await readFile(codexResult.targetPath, "utf8");
+    assert.match(installedCodex, /model = "gpt-5-codex"/);
+
+    const unchanged = await previewSpecialistAgent(root, entry.id, "opencode", { catalog, models });
+    assert.equal(unchanged.action, "already-current");
+    const changed = await previewSpecialistAgent(root, entry.id, "opencode", {
+      catalog,
+      models: { ...models, "opencode:demo-specialist": "anthropic/claude-sonnet-4-5" }
+    });
+    assert.equal(changed.action, "update", "assigning a different model must rewrite the agent");
+  } finally {
+    restoreHome();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 
 function definition(overrides: Partial<SpecialistAgentDefinition> = {}): SpecialistAgentDefinition {
   return {

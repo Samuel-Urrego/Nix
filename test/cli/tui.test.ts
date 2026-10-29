@@ -346,6 +346,38 @@ test("the MCP step installs only the integrations the user picks", async () => {
   });
 });
 
+test("the model panel assigns a model, persists it, and applies it to the installed agent", async () => {
+  await withTuiSandbox(async ({ root, environment, restore }) => {
+    try {
+      await writeDetectedTargets(environment);
+      const { output, transcript } = scriptedOutput();
+      // home -> advanced -> configure models -> OpenCode -> Nix -> type an id -> back -> back -> exit -> quit
+      const answers = ["3", "11", "1", "1", "1", "openai/gpt-5-codex", "15", "3", "13", "4"];
+      await runTui({
+        output,
+        ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; },
+        skillOptions: bundledSkillsOnly
+      });
+
+      const text = transcript();
+      assert.match(text, /╭ AGENT MODELS/);
+      assert.match(text, /Runtime: opencode/);
+      assert.match(text, /no model assigned/);
+      assert.match(text, /will not invent a opencode model id/);
+
+      const config = JSON.parse(await readFile(path.join(root, "nix-home", "config.json"), "utf8")) as {
+        agentModels?: Record<string, string>;
+      };
+      assert.equal(config.agentModels?.["opencode:nix"], "openai/gpt-5-codex");
+
+      const agent = await readFile(path.join(root, "config", "opencode", "agents", "nix.md"), "utf8");
+      assert.match(agent, /^---\ndescription: ".*"\nmodel: openai\/gpt-5-codex\nmode: primary\n---/);
+    } finally {
+      await restore();
+    }
+  });
+});
+
 test("guided install writes nothing when the confirmation is declined", async () => {
   await withTuiSandbox(async ({ root, environment, restore }) => {
     try {
