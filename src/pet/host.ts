@@ -1,7 +1,9 @@
+import { createReadStream } from "node:fs";
 import { createServer, type Server, type ServerResponse } from "node:http";
 
+import { PET_STATES, readPetAssets, type PetAsset } from "./assets.js";
 import { petPageHtml } from "./page.js";
-import type { PetMood } from "./state.js";
+import type { PetMood, PetState } from "./state.js";
 
 export interface PetBridgeLike {
   send(text: string): Promise<void>;
@@ -14,6 +16,10 @@ export interface PetHost {
   close(): Promise<void>;
 }
 
+function isPetState(value: string): value is PetState {
+  return (PET_STATES as ReadonlyArray<string>).includes(value);
+}
+
 const MAX_BODY_BYTES = 8 * 1024;
 
 /**
@@ -23,15 +29,38 @@ const MAX_BODY_BYTES = 8 * 1024;
  */
 export async function startPetHost(options: {
   readonly bridge: PetBridgeLike;
+  /** Project directory: `<directory>/pet-assets` replaces the built-in companion. */
+  readonly directory?: string;
+  readonly assets?: ReadonlyMap<PetState, PetAsset>;
   readonly host?: string;
   readonly port?: number;
 }): Promise<PetHost> {
+  const assets = options.assets ?? (options.directory ? await readPetAssets(options.directory) : new Map());
   const clients = new Set<ServerResponse>();
   const server: Server = createServer((request, response) => {
     const url = request.url ?? "/";
     if (request.method === "GET" && url === "/") {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
       response.end(petPageHtml);
+      return;
+    }
+    if (request.method === "GET" && url === "/assets") {
+      const list = [...assets.entries()].map(([state, asset]) => ({ state, url: `/pet/${state}`, type: asset.contentType }));
+      response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+      response.end(JSON.stringify(list));
+      return;
+    }
+    if (request.method === "GET" && url.startsWith("/pet/")) {
+      const state = url.slice("/pet/".length).split("?")[0] ?? "";
+      const asset = isPetState(state) ? assets.get(state) : undefined;
+      if (!asset) {
+        response.writeHead(404, { "content-type": "application/json" }).end(JSON.stringify({ error: "no art for this state" }));
+        return;
+      }
+      response.writeHead(200, { "content-type": asset.contentType, "cache-control": "no-store" });
+      createReadStream(asset.file)
+        .on("error", () => response.destroy())
+        .pipe(response);
       return;
     }
     if (request.method === "GET" && url === "/mood") {

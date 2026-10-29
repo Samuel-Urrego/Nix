@@ -31,7 +31,7 @@ async function main(): Promise<void> {
     directory,
     onMood: (mood: PetMood) => host?.push(mood)
   });
-  host = await startPetHost({ bridge });
+  host = await startPetHost({ bridge, directory });
   await bridge.start();
 
   await electron.app.whenReady();
