@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { DefaultArchitectureSelector } from "../core/architecture/default-architecture-selector.js";
@@ -101,6 +102,7 @@ const handlers = new Map<string, CommandHandler>([
   ["agent:remove", removeSpecialistAgentCommand],
   ["skill:new", newSkillCommand],
   ["agent:new", newAgentCommand],
+  ["pet", petCommand],
   ["release:manifest", releaseManifestCommand],
   ["release:verify", verifyReleaseCommand],
   ["help", printHelp]
@@ -875,8 +877,24 @@ async function newSkillCommand(): Promise<void> {
   console.log(`Files: ${result.files.join(", ")}`);
 }
 
-async function newAgentCommand(): Promise<void> {
+import { resolveElectronPath } from "../pet/electron-path.js";
+
+async function petCommand(): Promise<void> {
   const args = process.argv.slice(3);
+  const directory = path.resolve(resolveRootFromArgs(args));
+  const electronBinary = await resolveElectronPath();
+  const mainPath = fileURLToPath(new URL("../pet/electron-main.js", import.meta.url));
+  const child = spawn(electronBinary, [mainPath], { cwd: directory, stdio: "inherit" });
+  await new Promise<void>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code) => {
+      if (code !== null && code !== 0) process.exitCode = code;
+      resolve();
+    });
+  });
+}
+
+async function newAgentCommand(): Promise<void> {  const args = process.argv.slice(3);
   const id = readOption(args, "id");
   if (!id) throw new Error("Provide --id=<agent-id>.");
   const target = readOption(args, "target") ?? "opencode";
@@ -994,6 +1012,7 @@ async function printHelp(): Promise<void> {
   console.log("  skill:remove     Remove only the Nix-managed skill (same flags, --yes)");
   console.log("  skill:new        Scaffold a skill (--id=<id> [--scope=global|project] [--agent=opencode|codex] [--root=<project>])");
   console.log("  agent:new        Scaffold a project agent (--id=<id> [--target=opencode|codex] [--root=<project>])");
+  console.log("  pet              Open the floating pet window for the current project (needs Electron)");
   console.log("  agent:list       List Nix-managed global specialist agents");
   console.log("  agent:status     Show specialist-agent install state per supported target");
   console.log("  agent:preview    Preview one target (--id=<id> --agent=opencode|codex)");
