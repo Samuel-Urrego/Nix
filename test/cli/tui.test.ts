@@ -294,7 +294,7 @@ test("guided install detects targets and only writes the selected application", 
     try {
       await writeDetectedTargets(environment);
       const { output, transcript } = scriptedOutput();
-      const answers = ["1", "2", "1", "8", "1", "", "4"];
+      const answers = ["1", "2", "1", "8", "none", "1", "", "4"];
       await runTui({ output, ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; } });
 
       const command = await readFile(path.join(root, "config", "opencode", "commands", "araxys.md"), "utf8");
@@ -315,12 +315,43 @@ test("guided install detects targets and only writes the selected application", 
   });
 });
 
+test("the MCP step installs only the integrations the user picks", async () => {
+  await withTuiSandbox(async ({ root, environment, restore }) => {
+    try {
+      await writeDetectedTargets(environment);
+      const { output, transcript } = scriptedOutput();
+      // home, choose targets, all targets, no skills, first MCP (Playwright), confirm, report, quit
+      const answers = ["1", "2", "all", "none", "1", "1", "", "4"];
+      await runTui({
+        output,
+        ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; },
+        skillOptions: bundledSkillsOnly
+      });
+
+      const text = transcript();
+      assert.match(text, /╭ MCP INTEGRATIONS/);
+      assert.match(text, /MCP \[opencode\] →/);
+      assert.match(text, /install: Playwright MCP/);
+
+      const opencode = await readFile(path.join(root, "config", "opencode", "opencode.json"), "utf8");
+      assert.match(opencode, /playwright/);
+      assert.doesNotMatch(opencode, /context7|codegraph|engram/, "an unchecked MCP is never written");
+
+      const codex = await readFile(path.join(root, "codex", "config.toml"), "utf8");
+      assert.match(codex, /playwright/);
+      assert.doesNotMatch(codex, /context7|codegraph|engram/);
+    } finally {
+      await restore();
+    }
+  });
+});
+
 test("guided install writes nothing when the confirmation is declined", async () => {
   await withTuiSandbox(async ({ root, environment, restore }) => {
     try {
       await writeDetectedTargets(environment);
       const declined = scriptedOutput();
-      const answers = ["1", "2", "1", "8", "2", "", "4"];
+      const answers = ["1", "2", "1", "8", "none", "2", "", "4"];
       await runTui({ output: declined.output, ask: async (prompt) => { declined.output.write(prompt); return answers.shift() ?? ""; } });
       assert.match(declined.transcript(), /No files changed\./);
       await assert.rejects(readFile(path.join(root, "config", "opencode", "commands", "araxys.md"), "utf8"), { code: "ENOENT" });
@@ -457,7 +488,7 @@ test("Escape at the skills step returns to the targets step with the previous an
       await writeDetectedTargets(environment);
       const { output, transcript } = scriptedOutput();
       const answers = ["1", "2", "1", "", "4"];
-      const picks: Array<readonly number[] | undefined> = [[0], undefined, [0], [0]];
+      const picks: Array<readonly number[] | undefined> = [[0], undefined, [0], [0], []];
       await runTui({
         output,
         ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; },
@@ -688,6 +719,8 @@ test("real keyboard selection drives the guided install end to end", async () =>
       await expect("Search: python");
       input.write(" ");
       await expect("› [x] Python and FastAPI");
+      input.write("\r");
+      await expect("Which MCP integrations should Nix install?");
       input.write("\r");
       await expect("Apply these global changes?");
       const confirmFrame = transcript.split("\u001b[H").pop() ?? "";

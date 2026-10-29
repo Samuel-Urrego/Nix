@@ -371,12 +371,13 @@ async function runGuidedInstall(
    * with the previous answers intact, and only Escape on the first step cancels.
    */
   const choosePlan = async () => {
-    let step: "mode" | "targets" | "skills" | "preview" = "mode";
+    let step: "mode" | "targets" | "skills" | "mcp" | "preview" = "mode";
     let modeIndex = 0;
     let targets: readonly SkillAgent[] = [];
     let skills: ReadonlyArray<SkillCatalogEntry> = [];
     let targetAgents: readonly SkillAgent[] = available.map((detection) => detection.agent);
     let skillIds: readonly string[] | undefined;
+    let mcpIds: readonly string[] = mcpCatalog.map((entry) => entry.id);
 
     for (;;) {
       if (step === "mode") {
@@ -387,6 +388,7 @@ async function runGuidedInstall(
         if (mode === 0) {
           targets = available.map((detection) => detection.agent);
           skills = catalog.filter((entry) => targets.some((agent) => entry.compatibleAgents.includes(agent)));
+          mcpIds = mcpCatalog.map((entry) => entry.id);
           step = "preview";
         } else {
           step = "targets";
@@ -448,16 +450,39 @@ async function runGuidedInstall(
         }
         skills = picks.map((index) => entries[index]).filter((entry): entry is SkillCatalogEntry => entry !== undefined);
         skillIds = skills.map((entry) => entry.id);
+        step = "mcp";
+        continue;
+      }
+
+      if (step === "mcp") {
+        const entries = mcpCatalog.filter((entry) => targets.some((agent) => entry.supportedAgents.includes(agent)));
+        if (entries.length === 0) {
+          mcpIds = [];
+          step = "preview";
+          continue;
+        }
+        terminal.clear();
+        const picks = await terminal.multiSelect(
+          "Which MCP integrations should Nix install? (space to toggle, Enter continue)",
+          entries.map((entry) => `${entry.name} — ${entry.purpose}`),
+          "MCP INTEGRATIONS",
+          entries.map((entry, index) => (mcpIds.includes(entry.id) ? index : -1)).filter((index) => index >= 0)
+        );
+        if (picks === undefined) {
+          step = "skills";
+          continue;
+        }
+        mcpIds = picks.map((index) => entries[index]?.id).filter((id): id is string => id !== undefined);
         step = "preview";
         continue;
       }
 
-      const preview = await buildInstallPreview(root, statePath, targets, skills, skillOptions);
+      const preview = await buildInstallPreview(root, statePath, targets, skills, mcpIds, skillOptions);
       terminal.clear();
       terminal.report("INSTALL PREVIEW", preview.lines);
       const confirmed = await terminal.select("Apply these global changes?", ["Yes, install", "No, cancel"], "CONFIRM", undefined, 1);
       if (confirmed < 0) {
-        step = modeIndex === 0 ? "mode" : "skills";
+        step = modeIndex === 0 ? "mode" : "mcp";
         continue;
       }
       if (confirmed !== 0) {
@@ -473,10 +498,10 @@ async function runGuidedInstall(
     await pause(terminal, output, "INSTALL CANCELLED", [cancelNote]);
     return;
   }
-  const { effectiveState, skillPlans, agentPlans, runtimeNotes, targets } = selection;
+  const { effectiveState, skillPlans, agentPlans, mcpPlans, runtimeNotes, targets } = selection;
 
   terminal.clear();
-  const progress = terminal.progress("INSTALLING", targets.length + skillPlans.length + agentPlans.length);
+  const progress = terminal.progress("INSTALLING", targets.length + skillPlans.length + agentPlans.length + mcpPlans.length);
   let completed = 0;
   let installedCount = 0;
   let skippedCount = 0;
@@ -512,6 +537,29 @@ async function runGuidedInstall(
       } else {
         const result = await installSkill(root, plan.id, agent, skillOptions);
         installedCount += result.fileCount;
+      }
+    } catch (error) {
+      failures.push(`${label}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    completed += 1;
+    progress.update(completed, label);
+  }
+
+  for (const { plan, agent, name } of mcpPlans) {
+    const label = `MCP ${name} [${agent}]`;
+    progress.update(completed, label);
+    try {
+      if (plan.action === "already-current") {
+        skippedCount += 1;
+      } else if (!plan.prerequisites.satisfied) {
+        // A missing runtime tool is not a failed install: the entry simply stays uninstalled.
+        skippedCount += 1;
+      } else if (plan.action === "install" || plan.action === "update") {
+        await installMcp(root, plan.id, agent);
+        installedCount += 1;
+      } else {
+        skippedCount += 1;
+        failures.push(`${label}: ${plan.action}${plan.reason ? ` — ${plan.reason}` : ""}`);
       }
     } catch (error) {
       failures.push(`${label}: ${error instanceof Error ? error.message : String(error)}`);
@@ -1089,6 +1137,7 @@ async function buildInstallPreview(
   statePath: string,
   targets: readonly SkillAgent[],
   skills: ReadonlyArray<SkillCatalogEntry>,
+  mcpIds: readonly string[],
   skillOptions: SkillInstallerOptions | undefined
 ) {
   const state = await loadStackState(statePath);
@@ -1156,6 +1205,27 @@ async function buildInstallPreview(
     previewLines.push("");
   }
 
+  // MCP integrations are chosen explicitly: an entry the user unchecked is never written.
+  const mcpPlans: Array<{ readonly plan: Awaited<ReturnType<typeof previewMcp>>; readonly agent: SkillAgent; readonly name: string }> = [];
+  for (const entry of mcpCatalog) {
+    if (!mcpIds.includes(entry.id)) continue;
+    for (const agent of targets) {
+      if (!entry.supportedAgents.includes(agent)) continue;
+      const plan = await previewMcp(root, entry.id, agent);
+      mcpPlans.push({ plan, agent, name: entry.name });
+    }
+  }
+  for (const agent of targets) {
+    const group = mcpPlans.filter((item) => item.agent === agent);
+    if (group.length === 0) continue;
+    previewLines.push(`MCP [${agent}] → ${shortenPath(path.dirname(group[0]!.plan.targetPath))}`);
+    for (const item of group) {
+      const missing = item.plan.prerequisites.satisfied ? "" : ` (needs: ${item.plan.prerequisites.missing.join("; ")})`;
+      previewLines.push(`  ${item.plan.action}: ${item.name}${missing}${item.plan.reason ? ` — ${item.plan.reason}` : ""}`);
+    }
+    previewLines.push("");
+  }
+
   // Nix-owned specialist agents are part of the same one-step install: an orchestrator
   // that cannot invoke its specialists is only half installed.
   const agentPlans: Array<{ readonly plan: SpecialistAgentPlan; readonly agent: SpecialistAgentTarget; readonly name: string }> = [];
@@ -1181,5 +1251,5 @@ async function buildInstallPreview(
     previewLines.push("");
   }
   previewLines.push("Unmanaged files are always preserved.");
-  return { lines: previewLines, effectiveState, skillPlans, agentPlans, runtimeNotes, targets };
+  return { lines: previewLines, effectiveState, skillPlans, agentPlans, mcpPlans, runtimeNotes, targets };
 }
