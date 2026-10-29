@@ -93,9 +93,32 @@ test("Nix orchestrator is an OpenCode primary agent that runs the ODD flow", () 
     "araxys-specialist",
     "python-fastapi-specialist",
     "skill-runner",
+    "stack-advisor",
+    "rust-specialist",
+    "typescript-stack",
   ]) {
     assert.match(nix.instructions, new RegExp(marker), `the orchestrator prompt must define ${marker}`);
   }
+  // The prompt merges the Gentle-AI delegation rules with the ECC security baseline.
+  for (const marker of [
+    "## Security",
+    "Never hardcode a secret",
+    "Validate every input that crosses a trust boundary",
+    "Never swallow an error",
+    "## Asking the user",
+    "Never summarize away options",
+    "## Project context and the project skill",
+    "ask authorization to create one",
+    "nix-ai skill:new --scope=project",
+    "## Technology decisions",
+    "## Language",
+  ]) {
+    assert.match(nix.instructions, new RegExp(marker), `the merged orchestrator prompt must define ${marker}`);
+  }
+  assert.match(nix.instructions, /prefer many small files over a few large ones/i);
+  assert.match(nix.instructions, /Conventional commit messages/i);
+  assert.doesNotMatch(nix.instructions, /DOC\s*$/m, "the prompt must not carry a source header into the agent file");
+  assert.equal(nix.version, "2.0.0");
   // Any installed skill is reachable through a delegated specialist, not just the two named domains.
   const runner = findSpecialistAgent("skill-runner");
   assert.ok(runner, "a skill runner must exist so every skill can be delegated");
