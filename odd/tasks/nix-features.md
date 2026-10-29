@@ -91,6 +91,20 @@ User request: "Panel de configuración de modelos para cada agente, revisa como 
 | T3 | S2, S5, S6 | Inline | Done - project-scope skill and agent creators, merged prompt with the project-skill rule | `b856d00`; `194 passed` |
 | T4 | S7 | Inline | Done - MCP step in the guided install, `context7` added, unchecked entries never written | `c085f7d`; `195 passed` |
 | T5 | S8 | Inline | Done - per-agent model panel, model rendered into both agent formats | `f543fe1`; `202 passed` |
+| T6 | S16 | Inline | Done - pet window: event-to-mood mapping, local host, session bridge, optional Electron | `ffc5109`; host/bridge/mood tests plus a live run that attached to the real session; `216 passed` |
+
+### S16 — The pet window
+
+User request: "en codex uno puede activar una pet que se pone como si fuera un video en pantalla, y desde ahi uno le puede responder al agente" and "Que conviva con el Instalador".
+
+- `nix-ai pet` opens, for the current project, a transparent, frameless, always-on-top window from the same CLI that installs everything else.
+- The window shows the agent's state (idle, thinking, working, waiting, success, error) derived from the documented OpenCode V2 event families, not from guesses.
+- Typing in the window sends the text to the current session with `session.prompt`; a project with no session gets one created.
+- The window is served by a local HTTP host: no preload script, no Node integration, no build-time assets, and the same page can be opened in a browser to check it.
+- Electron stays optional and is never a dependency of the installer. Without it the command fails with the exact install command.
+- Known gap: the Electron shell (transparency, always-on-top) is not verified until Electron is installed and the window is opened; the host, the mood mapping and the bridge are covered by tests and by a live run against the local OpenCode service.
+
+Risk: item 5 — it adds a runtime surface and a new dependency (`@opencode/client`) to the CLI; the window writes nothing by itself.
 
 ## Log
 
