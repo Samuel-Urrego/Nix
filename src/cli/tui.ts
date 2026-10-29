@@ -15,6 +15,7 @@ import { installAgentCommands, removeAgentCommands } from "../core/commands/work
 import { specialistAgentCatalog } from "../core/agents/agent-catalog.js";
 import { getSpecialistAgentStatus, installSpecialistAgent, previewSpecialistAgent, removeSpecialistAgent, updateSpecialistAgent } from "../core/agents/agent-installer.js";
 import { listModelsFor } from "../core/agents/model-catalog.js";
+import { readProjectTasks } from "../core/tasks/task-documents.js";
 import { loadNixConfig, writeDefaultNixConfig } from "../core/config/config-loader.js";
 import type { SpecialistAgentPlan, SpecialistAgentTarget } from "../core/agents/agent-contracts.js";
 import { skillCatalog } from "../core/skills/skill-catalog.js";
@@ -694,6 +695,8 @@ async function runAdvancedManagement(
     "Manage specialist agents",
     "Configure agent models",
     "Manage MCP integrations",
+    "Tasks",
+    "Subagents",
     "Exit"
   ];
   while (true) {
@@ -777,6 +780,14 @@ async function runAdvancedManagement(
     }
     if (choice === categories.length + 9) {
       await manageMcpIntegrations(terminal, output);
+      continue;
+    }
+    if (choice === categories.length + 10) {
+      await showTasks(terminal, output);
+      continue;
+    }
+    if (choice === categories.length + 11) {
+      await showSubagents(terminal, output);
       continue;
     }
 
@@ -1017,6 +1028,49 @@ async function configureTargetModels(
     }
     void output;
   }
+}
+
+async function showTasks(terminal: TuiTerminal, output: NodeJS.WritableStream): Promise<void> {
+  const documents = await readProjectTasks(process.cwd());
+  const lines: string[] = [];
+  if (documents.length === 0) {
+    lines.push("No task document found under odd/tasks/.", "", "Nix writes one for large authorized work.");
+  }
+  for (const document of documents) {
+    const open = document.tasks.filter((task) => !task.done).length;
+    lines.push(`${document.title} (${document.file}) — ${document.tasks.length} task(s), ${open} open`);
+    for (const task of document.tasks) {
+      lines.push(`  ${task.done ? "[x]" : "[ ]"} ${task.id} ${task.specs} — ${task.status}`);
+    }
+    lines.push("");
+  }
+  terminal.report("TASKS", lines);
+  void output;
+  await terminal.wait();
+}
+
+async function showSubagents(terminal: TuiTerminal, output: NodeJS.WritableStream): Promise<void> {
+  const root = process.cwd();
+  const { config } = await loadNixConfig(root);
+  const models = config.agentModels ?? {};
+  const statuses = await getSpecialistAgentStatus(root, { catalog: specialistAgentCatalog, models });
+  const lines: string[] = [];
+  for (const target of ["opencode", "codex"] as const) {
+    const entries = specialistAgentCatalog.filter((entry) => entry.supportedAgents.includes(target));
+    const current = entries.filter((entry) =>
+      statuses.some((status) => status.id === entry.id && status.agent === target && status.state === "current")
+    );
+    lines.push(`${target}: ${current.length}/${entries.length} current`);
+    for (const entry of entries) {
+      const state = statuses.find((status) => status.id === entry.id && status.agent === target)?.state ?? "absent";
+      const assigned = models[`${target}:${entry.id}`];
+      lines.push(`  ${entry.id} — ${state}${assigned ? ` · ${assigned}` : ""}`);
+    }
+    lines.push("");
+  }
+  terminal.report("SUBAGENTS", lines);
+  void output;
+  await terminal.wait();
 }
 
 async function manageMcpIntegrations(terminal: TuiTerminal, output: NodeJS.WritableStream): Promise<void> {

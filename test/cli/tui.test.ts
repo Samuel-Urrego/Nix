@@ -51,7 +51,7 @@ test("TUI installs a Nix specialist agent through preview and explicit confirmat
   const output = new PassThrough() as PassThrough & { isTTY: boolean };
   let transcript = "";
   output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
-  const answers = ["3", "10", "araxys", "1", "1", "yes", "", "b", "12", "4"];
+  const answers = ["3", "10", "araxys", "1", "1", "yes", "", "b", "15", "4"];
 
   try {
     await runTui({ output, ask: async (prompt) => {
@@ -89,7 +89,7 @@ test("TUI installs an optional MCP only after showing its network and target pre
   const output = new PassThrough();
   let transcript = "";
   output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
-  const answers = ["3", "2", "1", "1", "1", "yes", "", "b", "12", "4"];
+  const answers = ["3", "2", "1", "1", "1", "yes", "", "b", "15", "4"];
 
   try {
     await runTui({ output, ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; } });
@@ -123,7 +123,7 @@ test("TUI previews and installs Nix commands for the selected agent target", asy
   const output = new PassThrough();
   let transcript = "";
   output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
-  const answers = ["3", "9", "1", "yes", "", "12", "4"];
+  const answers = ["3", "9", "1", "yes", "", "15", "4"];
 
   try {
     const statePath = getStackStatePath();
@@ -166,7 +166,7 @@ test("TUI reports missing MCP prerequisites without offering to apply the change
   const output = new PassThrough();
   let transcript = "";
   output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
-  const answers = ["3", "2", "4", "1", "1", "", "b", "12", "4"];
+  const answers = ["3", "2", "4", "1", "1", "", "b", "15", "4"];
 
   try {
     await runTui({ output, ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; } });
@@ -199,7 +199,7 @@ test("declining agent, MCP, and command installs leaves all global targets uncha
   const output = new PassThrough();
   let transcript = "";
   output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
-  const answers = ["3", "10", "1", "1", "1", "no", "", "b", "2", "1", "1", "1", "no", "", "b", "9", "1", "no", "", "12", "4"];
+  const answers = ["3", "10", "1", "1", "1", "no", "", "b", "2", "1", "1", "1", "no", "", "b", "9", "1", "no", "", "15", "4"];
 
   try {
     const statePath = getStackStatePath();
@@ -352,7 +352,7 @@ test("the model panel assigns a model, persists it, and applies it to the instal
       await writeDetectedTargets(environment);
       const { output, transcript } = scriptedOutput();
       // home -> advanced -> configure models -> OpenCode -> Nix -> type an id -> back -> back -> exit -> quit
-      const answers = ["3", "11", "1", "1", "1", "openai/gpt-5-codex", "15", "3", "13", "4"];
+      const answers = ["3", "11", "1", "1", "1", "openai/gpt-5-codex", "15", "3", "15", "4"];
       await runTui({
         output,
         ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; },
@@ -372,6 +372,32 @@ test("the model panel assigns a model, persists it, and applies it to the instal
 
       const agent = await readFile(path.join(root, "config", "opencode", "agents", "nix.md"), "utf8");
       assert.match(agent, /^---\ndescription: ".*"\nmodel: openai\/gpt-5-codex\nmode: primary\n---/);
+    } finally {
+      await restore();
+    }
+  });
+});
+
+test("the advanced menu shows the project task list and the installed subagents", async () => {
+  await withTuiSandbox(async ({ environment, restore }) => {
+    try {
+      await writeDetectedTargets(environment);
+      const { output, transcript } = scriptedOutput();
+      // home -> advanced -> Tasks -> continue -> Subagents -> continue -> exit -> quit
+      const answers = ["3", "13", "", "14", "", "15", "4"];
+      await runTui({
+        output,
+        ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; },
+        skillOptions: bundledSkillsOnly
+      });
+
+      const text = transcript();
+      assert.match(text, /╭ TASKS/);
+      assert.match(text, /\[ \]|\[x\]/, "each task shows its state as a checkbox");
+      assert.match(text, /task\(s\)/);
+      assert.match(text, /╭ SUBAGENTS/);
+      assert.match(text, /opencode: \d+\/\d+ current/);
+      assert.match(text, /nix — /);
     } finally {
       await restore();
     }
