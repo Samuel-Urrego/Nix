@@ -3,7 +3,7 @@ name: javascript-stack
 description: "Trigger: JavaScript, React, Vue, Svelte, Angular, Express, Fastify, Nest, Vite, Vitest, Playwright. Pick the JavaScript stack and verify it against package.json."
 license: Apache-2.0
 metadata:
-  author: "surre"
+  author: "Samuel Urrego"
   version: "1.0"
 ---
 

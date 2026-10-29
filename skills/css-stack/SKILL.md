@@ -3,7 +3,7 @@ name: css-stack
 description: "Trigger: CSS, Tailwind, Bootstrap, Sass, PostCSS, CSS Modules, design tokens, container queries. Pick the CSS strategy and verify it against the build pipeline."
 license: Apache-2.0
 metadata:
-  author: "surre"
+  author: "Samuel Urrego"
   version: "1.0"
 ---
 

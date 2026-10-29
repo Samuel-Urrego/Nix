@@ -20,7 +20,7 @@ test("Nix Core catalog entry declares Codex project scope and Apache provenance"
 
 test("Nix Core source skill has required metadata and operational sections", async () => {
   const source = await readFile(path.join(process.cwd(), "skills", "nix-core", "SKILL.md"), "utf8");
-  assert.match(source, /^---\r?\nname: nix-core\r?\ndescription: ".+"\r?\nlicense: Apache-2\.0\r?\nmetadata:\r?\n  author: "surre"\r?\n  version: "1\.0"\r?\n---/);
+  assert.match(source, /^---\r?\nname: nix-core\r?\ndescription: ".+"\r?\nlicense: Apache-2\.0\r?\nmetadata:\r?\n  author: "Samuel Urrego"\r?\n  version: "1\.0"\r?\n---/);
   for (const section of ["Activation Contract", "Hard Rules", "Decision Gates", "Execution Steps", "Output Contract", "References"]) {
     assert.ok(source.includes(`## ${section}`), `missing section: ${section}`);
   }

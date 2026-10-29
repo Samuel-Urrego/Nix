@@ -53,7 +53,7 @@ name: ${id}
 description: "Trigger: work inside this project, project commands, project conventions. Load before domain work."
 license: Apache-2.0
 metadata:
-  author: "project"
+  author: "Samuel Urrego"
   version: "0.1.0"
 ---
 
@@ -115,7 +115,7 @@ name: ${id}
 description: "Trigger: ${id} workflow, repeated ${id} task, project convention. Execute one narrow repeatable workflow."
 license: Apache-2.0
 metadata:
-  author: "surre"
+  author: "Samuel Urrego"
   version: "0.1.0"
 ---
 

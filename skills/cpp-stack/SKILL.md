@@ -3,7 +3,7 @@ name: cpp-stack
 description: "Trigger: C++, CMake, vcpkg, Conan, GoogleTest, Catch2, Qt, Boost, Asio. Pick the C++ toolchain and verify it against the build files."
 license: Apache-2.0
 metadata:
-  author: "surre"
+  author: "Samuel Urrego"
   version: "1.0"
 ---
 

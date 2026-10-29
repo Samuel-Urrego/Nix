@@ -25,7 +25,7 @@ name: {skill-name}
 description: "Trigger: {essential trigger words}. {What the skill does}."
 license: Apache-2.0
 metadata:
-  author: "surre"
+  author: "Samuel Urrego"
   version: "1.0"
 ---
 

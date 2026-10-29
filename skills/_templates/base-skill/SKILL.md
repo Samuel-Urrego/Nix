@@ -3,7 +3,7 @@ name: base-skill
 description: "Trigger: repeated workflow, reusable task, project convention. Execute one narrow repeatable workflow for Nix."
 license: Apache-2.0
 metadata:
-  author: "surre"
+  author: "Samuel Urrego"
   version: "1.0"
 ---
 

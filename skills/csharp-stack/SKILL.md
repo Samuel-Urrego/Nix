@@ -3,7 +3,7 @@ name: csharp-stack
 description: "Trigger: C#, .NET, ASP.NET Core, EF Core, Dapper, MediatR, Blazor, MAUI, xUnit. Pick the .NET stack and verify it against the project file and target framework."
 license: Apache-2.0
 metadata:
-  author: "surre"
+  author: "Samuel Urrego"
   version: "1.0"
 ---
 

@@ -3,7 +3,7 @@ name: rust-stack
 description: "Trigger: Rust, Cargo, Axum, Actix, Rocket, Tokio, SQLx, Diesel, Tauri, Leptos. Pick the Rust framework and verify it against the installed crate versions."
 license: Apache-2.0
 metadata:
-  author: "surre"
+  author: "Samuel Urrego"
   version: "1.0"
 ---
 

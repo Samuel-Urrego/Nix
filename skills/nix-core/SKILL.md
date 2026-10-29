@@ -3,7 +3,7 @@ name: nix-core
 description: "Trigger: Nix AI Stack, Nix project, Nix workflow, Nix installer. Apply Nix's project architecture and safe-delivery conventions."
 license: Apache-2.0
 metadata:
-  author: "surre"
+  author: "Samuel Urrego"
   version: "1.0"
 ---
 

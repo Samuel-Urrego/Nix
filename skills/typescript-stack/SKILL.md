@@ -3,7 +3,7 @@ name: typescript-stack
 description: "Trigger: TypeScript, Next.js, NestJS, tRPC, Zod, Prisma, Drizzle, tsup, tsconfig strict. Pick the TypeScript stack and keep the type surface honest."
 license: Apache-2.0
 metadata:
-  author: "surre"
+  author: "Samuel Urrego"
   version: "1.0"
 ---
 

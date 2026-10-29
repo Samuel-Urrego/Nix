@@ -3,7 +3,7 @@ name: python-stack
 description: "Trigger: Python, Django, Flask, Litestar, SQLAlchemy, Pydantic, uv, poetry, pytest, Celery. Pick the Python framework and verify it against the lockfile."
 license: Apache-2.0
 metadata:
-  author: "surre"
+  author: "Samuel Urrego"
   version: "1.0"
 ---
 

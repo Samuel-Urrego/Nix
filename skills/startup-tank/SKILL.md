@@ -3,7 +3,7 @@ name: startup-tank
 description: "Trigger: startup idea, /new-startup, would investors fund this, shark tank, venture viability. Run an isolated investor panel and synthesize a verdict with the disagreements named."
 license: Apache-2.0
 metadata:
-  author: "surre"
+  author: "Samuel Urrego"
   version: "1.0"
 ---
 

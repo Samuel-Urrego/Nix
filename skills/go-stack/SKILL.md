@@ -3,7 +3,7 @@ name: go-stack
 description: "Trigger: Go, golang, net/http, chi, gin, echo, fiber, gRPC, sqlc, pgx, GORM, cobra. Pick the Go stack and verify it against go.mod."
 license: Apache-2.0
 metadata:
-  author: "surre"
+  author: "Samuel Urrego"
   version: "1.0"
 ---
 
