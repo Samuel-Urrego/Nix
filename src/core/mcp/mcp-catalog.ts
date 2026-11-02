@@ -90,7 +90,13 @@ export const mcpCatalog: ReadonlyArray<McpCatalogEntry> = [
     scope: "global",
     networkAccess: "first-run",
     prerequisites: [
-      { kind: "command", name: "node", description: "Node.js 22.23.4+, 24.22.1+, or 26.12.1+ is required by rea-agents" },
+      {
+        kind: "command",
+        name: "node",
+        description: "Node.js 22.23.4+, 24.22.1+, or 26.12.1+ is required by rea-agents",
+        versionRange: "^22.23.4 || ^24.22.1 || >=26.12.1",
+        versionArgs: ["--version"]
+      },
       { kind: "command", name: "npx", description: "npx downloads and launches the pinned rea-agents package" }
     ],
     credentials: {

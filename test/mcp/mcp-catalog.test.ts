@@ -38,5 +38,12 @@ test("MCP catalog records pinned commands, network access, and prerequisites", (
   const rea = findMcpEntry("rea");
   assert.deepEqual(rea?.server.command, ["npx", "-y", "rea-agents@6.8.0", "mcp"]);
   assert.equal(rea?.networkAccess, "first-run");
-  assert.ok(rea?.prerequisites.some((item) => item.kind === "command" && item.name === "node"));
+  const reaNode = rea?.prerequisites.find((item) => item.kind === "command" && item.name === "node");
+  assert.ok(reaNode && reaNode.kind === "command");
+  assert.equal(
+    reaNode.versionRange,
+    "^22.23.4 || ^24.22.1 || >=26.12.1",
+    "rea-agents refuses to run on a runtime outside its engine range"
+  );
+  assert.deepEqual(reaNode.versionArgs, ["--version"]);
 });

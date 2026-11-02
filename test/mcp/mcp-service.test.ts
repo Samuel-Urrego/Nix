@@ -9,6 +9,7 @@ import {
   getMcpStatus,
   installMcp,
   previewMcp,
+  probeCommandVersion,
   removeMcp,
   updateMcp,
 } from "../../src/core/mcp/mcp-service.js";
@@ -137,4 +138,11 @@ test("Playwright preview reports first-run network access without writing", asyn
     restoreHome();
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("the version probe reads the runtime and fails closed on an unusable command", async () => {
+  const node = await probeCommandVersion("node", ["--version"]);
+  assert.ok(node, "node must report a version");
+  assert.ok(node.major >= 20, "a modern Node satisfies the pet-era engines the catalog declares");
+  assert.equal(await probeCommandVersion("definitely-not-a-command-xyz", ["--version"]), undefined);
 });

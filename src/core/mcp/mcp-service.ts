@@ -1,13 +1,14 @@
 import { createHash } from "node:crypto";
+import { spawn } from "node:child_process";
 import { access } from "node:fs/promises";
 import path from "node:path";
 
 import { createCodexMcpAdapter } from "./codex-mcp-adapter.js";
 import { createOpenCodeMcpAdapter } from "./opencode-mcp-adapter.js";
 import { findMcpEntry, mcpCatalog } from "./mcp-catalog.js";
+import { formatVersion, parseVersion, satisfiesRange, type Version } from "./version-range.js";
 import type { McpAgent, McpCredentialPolicy, McpLocalServer, McpNetworkAccess, McpScope } from "./mcp-contracts.js";
-import type { McpAgentAdapter as Adapter } from "./mcp-agent-adapter.js";
-import {
+import type { McpAgentAdapter as Adapter } from "./mcp-agent-adapter.js";import {
   managedMcpKey,
   readManagedMcpState,
   writeManagedMcpState,
@@ -17,6 +18,9 @@ import {
 
 export type McpPlanAction = "install" | "update" | "already-current" | "conflict";
 export type McpInstallState = "absent" | "current" | "update-available" | "modified" | "conflict" | "invalid";
+
+/** A version probe must never hang the installer on a broken command. */
+const VERSION_PROBE_TIMEOUT_MS = 5000;
 
 export interface McpPrerequisiteStatus {
   readonly satisfied: boolean;
@@ -196,11 +200,65 @@ async function checkPrerequisites(root: string, prerequisites: McpCatalogEntryPr
     if (prerequisite.kind === "file") {
       const target = path.join(path.resolve(root), ...prerequisite.path.split("/"));
       if (!(await exists(target))) missing.push(prerequisite.description);
-    } else if (!(await findExecutable(prerequisite.name))) {
+      continue;
+    }
+    if (!(await findExecutable(prerequisite.name))) {
       missing.push(prerequisite.description);
+      continue;
+    }
+    if (prerequisite.versionRange) {
+      // A present command is not a usable command: REA needs a Node range that an
+      // installed-but-older runtime silently fails, so the version is checked here.
+      const version = await probeCommandVersion(prerequisite.name, prerequisite.versionArgs ?? ["--version"]);
+      if (!version) {
+        missing.push(`${prerequisite.description} (version could not be read)`);
+      } else if (!satisfiesRange(version, prerequisite.versionRange)) {
+        missing.push(
+          `${prerequisite.description}: found ${formatVersion(version)}, requires ${prerequisite.versionRange}`
+        );
+      }
     }
   }
   return { satisfied: missing.length === 0, missing };
+}
+
+/** Runs `<command> --version` (or the given args) and reads the first x.y.z it prints. */
+export async function probeCommandVersion(
+  name: string,
+  args: ReadonlyArray<string>
+): Promise<Version | undefined> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value: Version | undefined): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(name, [...args], {
+        shell: process.platform === "win32",
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"]
+      });
+    } catch {
+      resolve(undefined);
+      return;
+    }
+    const timer = setTimeout(() => {
+      child.kill();
+      finish(undefined);
+    }, VERSION_PROBE_TIMEOUT_MS);
+    let output = "";
+    const collect = (chunk: Buffer): void => {
+      output += chunk.toString("utf8");
+    };
+    child.stdout?.on("data", collect);
+    child.stderr?.on("data", collect);
+    child.on("error", () => finish(undefined));
+    child.on("close", () => finish(parseVersion(output)));
+  });
 }
 
 type McpCatalogEntryPrerequisites = import("./mcp-contracts.js").McpCatalogEntry["prerequisites"];
