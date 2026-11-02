@@ -78,7 +78,9 @@ export async function runWorkflowCommand(
         ? renderAraxysPrompt(root, normalizedTitle)
         : id === "security-audit"
           ? renderSecurityAuditPrompt(root, normalizedTitle)
-          : renderNewProjectPrompt(normalizedTitle)
+          : id === "new-startup"
+            ? renderStartupPrompt(root, normalizedTitle)
+            : renderNewProjectPrompt(normalizedTitle)
   };
 }
 
@@ -112,6 +114,9 @@ function renderOpenCodeCommand(command: WorkflowCommandDefinition): string {
   }
   if (command.id === "security-audit") {
     return `${header}Run a coverage-first security audit against the current project. Scope/request: $ARGUMENTS\n\nRead the installed Cloudflare Security Audit skill from the project's global Codex/OpenCode skill location before starting. Map routes, trust boundaries, and security-sensitive surfaces before claiming coverage. Inspect findings against code and tests; report only evidence-backed issues. Do not copy or replace the upstream skill instructions.\n`;
+  }
+  if (command.id === "new-startup") {
+    return `${header}Judge this startup idea with an isolated investor panel. Idea and context: $ARGUMENTS\n\nRead the installed \`startup-tank\` skill before starting and follow its isolation protocol. Dispatch one subagent per investor with the same brief and no access to another investor's verdict. If the runtime has no subagent mechanism, run the four roles as sequential passes with reset reasoning and say so. Never invent a score, a market number, or a competitor, and do not average a split panel into a fake consensus.\n`;
   }
   return `${header}Run the isolated blind-judge workflow and follow its returned prompt exactly:\n\n\`\`\`text\nnix-ai workflow:command --id=new-idea --title="$ARGUMENTS" --root=. --yes\n\`\`\`\n\nDo not start an SDD/TDD workflow. If the command reports that the skill or runtime contract is unavailable, stop and report the missing path.\n`;
 }
@@ -150,8 +155,26 @@ function renderCodexSkill(command: WorkflowCommandDefinition): string {
   if (command.id === "security-audit") {
     return `${header}Run a coverage-first security audit against the current project. Scope/request: <optional audit focus>\n\nRead the installed Cloudflare Security Audit skill from its global path before starting. Map routes, trust boundaries, and security-sensitive surfaces before claiming coverage. Inspect findings against code and tests; report only evidence-backed issues. Do not copy or replace the upstream skill instructions.\n`;
   }
+  if (command.id === "new-startup") {
+    return `${header}Judge this startup idea with an isolated investor panel. Idea: <the idea, the customer, the wedge, the team, the money, the timeline>\n\nRead the installed \`startup-tank\` skill before starting and follow its isolation protocol. Give every investor the same brief and no access to another investor's verdict. If the runtime has no subagent mechanism, run the four roles as sequential passes with reset reasoning and say so in the report. Never invent a score, a market number, or a competitor.\n`;
+  }
   return `${header}Run the isolated blind-judge workflow and follow its returned prompt exactly:\n\n\`\`\`text\nnix-ai workflow:command --id=new-idea --title="<idea text>" --root=. --yes\n\`\`\`\n\nDo not start an SDD/TDD workflow. If the command reports that the skill or runtime contract is unavailable, stop and report the missing path.\n`;
 }
+
+function renderStartupPrompt(root: string, idea: string): string {
+  const codexSkill = path.join(getGlobalSkillTargetPath("codex", "startup-tank"), "SKILL.md");
+  const opencodeSkill = path.join(getGlobalSkillTargetPath("opencode", "startup-tank"), "SKILL.md");
+  return [
+    "# /new-startup", "", "Judge this startup idea with the installed `startup-tank` skill; do not paraphrase its protocol.",
+    `Project scope: ${root}`, `Idea and context: ${idea || "missing - ask one question for the idea, the customer, the wedge, the team, the money and the timeline"}`, "",
+    "Collect a brief first. Every field that is unknown is marked unknown, not guessed.",
+    "One subagent per investor, same brief, no access to another investor's verdict. If the runtime has no subagent mechanism, run the four roles as sequential passes with reset reasoning and say that isolation was simulated.",
+    "Report the verdict, the score table, the disagreement, the kill risks and the cheapest experiment for each evidence gap. Never invent a score or a market number, and never average a split panel into a consensus.",
+    `- Codex skill: \`${codexSkill}\``, `- OpenCode skill: \`${opencodeSkill}\``,
+    "Do not start an unrelated SDD/TDD workflow."
+  ].join("\n");
+}
+
 
 function renderIdeaPrompt(root: string, title: string): string {
   const ideaDirectory = getProjectIdeasDirectory(root);

@@ -2,7 +2,7 @@ import type { StackState } from "../config/stack-state.js";
 import type { SkillAgent } from "../skills/skill-contracts.js";
 import type { WorkflowKind } from "../workflows/workflow-contracts.js";
 
-export type WorkflowCommandId = "new-feat" | "refactor" | "new-idea" | "new-project" | "araxys" | "security-audit";
+export type WorkflowCommandId = "new-feat" | "refactor" | "new-idea" | "new-project" | "araxys" | "security-audit" | "new-startup";
 
 export interface WorkflowCommandDefinition {
   readonly id: WorkflowCommandId;
@@ -103,6 +103,19 @@ export const workflowCommandCatalog: ReadonlyArray<WorkflowCommandDefinition> = 
     skillId: "security-audit",
     // Same rule as /araxys: the Codex wrapper never owns the skill directory.
     codexSkillId: "nix-command-security-audit",
+    requiredComponents: [],
+    slashAgents: ["opencode", "codex"],
+    cliAgents: ["opencode", "codex"],
+    artifacts: []
+  },
+  {
+    id: "new-startup",
+    slash: "/new-startup",
+    name: "New startup",
+    description: "Judge a startup idea with an isolated investor panel and a verdict that names the disagreements.",
+    kind: "skill",
+    skillId: "startup-tank",
+    codexSkillId: "nix-command-new-startup",
     requiredComponents: [],
     slashAgents: ["opencode", "codex"],
     cliAgents: ["opencode", "codex"],

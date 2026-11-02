@@ -35,6 +35,11 @@ export async function loadNixConfig(
     ...(parsed.architectureHints ? { architectureHints: parsed.architectureHints } : {}),
     ...(parsed.preferredTestRoot
       ? { preferredTestRoot: parsed.preferredTestRoot }
+      : {}),
+    ...(parsed.agentModels &&
+    typeof parsed.agentModels === "object" &&
+    !Array.isArray(parsed.agentModels)
+      ? { agentModels: parsed.agentModels }
       : {})
   };
 

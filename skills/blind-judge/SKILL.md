@@ -3,7 +3,7 @@ name: blind-judge
 description: "Trigger: blind judge, idea evaluation, pro and con judges, neutral evaluators, bounded verdict. Evaluate an idea with isolated judges and an auditable synthesis."
 license: Apache-2.0
 metadata:
-  author: "surre"
+  author: "Samuel Urrego"
   version: "1.0"
 ---
 

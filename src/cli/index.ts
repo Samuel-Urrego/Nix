@@ -42,7 +42,8 @@ import {
   removeSkill,
   updateSkill
 } from "../core/skills/skill-installer.js";
-import { scaffoldGlobalSkill } from "../core/skills/skill-authoring.js";
+import { scaffoldGlobalSkill, scaffoldProjectAgentSkill } from "../core/skills/skill-authoring.js";
+import { scaffoldProjectAgent } from "../core/agents/agent-authoring.js";
 import { CodexSkillAdapter } from "../core/components/codex-skill-adapter.js";
 import { componentCatalog } from "../core/components/component-catalog.js";
 import type { LifecycleOperation } from "../core/contracts/component-lifecycle.js";
@@ -99,6 +100,7 @@ const handlers = new Map<string, CommandHandler>([
   ["agent:update", updateSpecialistAgentCommand],
   ["agent:remove", removeSpecialistAgentCommand],
   ["skill:new", newSkillCommand],
+  ["agent:new", newAgentCommand],
   ["release:manifest", releaseManifestCommand],
   ["release:verify", verifyReleaseCommand],
   ["help", printHelp]
@@ -856,11 +858,33 @@ async function newSkillCommand(): Promise<void> {
   const args = process.argv.slice(3);
   const id = readOption(args, "id");
   if (!id) throw new Error("Provide --id=<skill-id>.");
+  const scope = readOption(args, "scope") ?? "global";
   const agent = readSkillAgent(args, "codex");
+  if (scope === "project") {
+    const root = path.resolve(resolveRootFromArgs(args));
+    const result = await scaffoldProjectAgentSkill(root, id, agent);
+    console.log(`Created project skill: ${id} [${agent}]`);
+    console.log(`Target: ${result.targetPath}`);
+    console.log(`Files: ${result.files.join(", ")}`);
+    return;
+  }
+  if (scope !== "global") throw new Error(`Unknown --scope=${scope}. Use global or project.`);
   const result = await scaffoldGlobalSkill(id, agent);
   console.log(`Created global skill: ${id} [${agent}]`);
   console.log(`Target: ${result.targetPath}`);
   console.log(`Files: ${result.files.join(", ")}`);
+}
+
+async function newAgentCommand(): Promise<void> {
+  const args = process.argv.slice(3);
+  const id = readOption(args, "id");
+  if (!id) throw new Error("Provide --id=<agent-id>.");
+  const target = readOption(args, "target") ?? "opencode";
+  if (target !== "opencode" && target !== "codex") throw new Error(`Unknown --target=${target}. Use opencode or codex.`);
+  const root = path.resolve(resolveRootFromArgs(args));
+  const result = await scaffoldProjectAgent(root, id, target);
+  console.log(`Created project agent: ${id} [${target}]`);
+  console.log(`Target: ${result.targetPath}`);
 }
 
 function printSkillPlan(id: string, agent: SkillAgent, plan: Awaited<ReturnType<typeof previewSkill>>): void {
@@ -968,7 +992,8 @@ async function printHelp(): Promise<void> {
   console.log("  skill:adopt      Claim an unmanaged skill directory whose content already matches (same flags, --yes)");
   console.log("  skill:update     Restore a managed skill from its pinned source (same flags, --yes)");
   console.log("  skill:remove     Remove only the Nix-managed skill (same flags, --yes)");
-  console.log("  skill:new        Scaffold a global user skill (--id=<id> [--agent=opencode|codex])");
+  console.log("  skill:new        Scaffold a skill (--id=<id> [--scope=global|project] [--agent=opencode|codex] [--root=<project>])");
+  console.log("  agent:new        Scaffold a project agent (--id=<id> [--target=opencode|codex] [--root=<project>])");
   console.log("  agent:list       List Nix-managed global specialist agents");
   console.log("  agent:status     Show specialist-agent install state per supported target");
   console.log("  agent:preview    Preview one target (--id=<id> --agent=opencode|codex)");

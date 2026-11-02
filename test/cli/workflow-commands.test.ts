@@ -58,7 +58,8 @@ test("workflow:commands reports the catalog and surface availability as JSON", a
       cliAvailable: boolean;
       slashAvailable: boolean;
     }>;
-    assert.equal(catalog.length, 6);
+    assert.equal(catalog.length, 7);
+    assert.ok(catalog.some((item) => item.command.slash === "/new-startup"));
     const newFeat = catalog.find((item) => item.command.slash === "/new-feat");
     assert.ok(newFeat);
     assert.equal(newFeat.cliAvailable, true);

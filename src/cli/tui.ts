@@ -13,7 +13,10 @@ import { getMcpStatus, installMcp, previewMcp, removeMcp } from "../core/mcp/mcp
 import { resolveCommandAvailability, workflowCommandCatalog } from "../core/commands/workflow-command-catalog.js";
 import { installAgentCommands, removeAgentCommands } from "../core/commands/workflow-command-service.js";
 import { specialistAgentCatalog } from "../core/agents/agent-catalog.js";
-import { getSpecialistAgentStatus, installSpecialistAgent, previewSpecialistAgent, removeSpecialistAgent } from "../core/agents/agent-installer.js";
+import { getSpecialistAgentStatus, installSpecialistAgent, previewSpecialistAgent, removeSpecialistAgent, updateSpecialistAgent } from "../core/agents/agent-installer.js";
+import { listModelsFor } from "../core/agents/model-catalog.js";
+import { readProjectTasks } from "../core/tasks/task-documents.js";
+import { loadNixConfig, writeDefaultNixConfig } from "../core/config/config-loader.js";
 import type { SpecialistAgentPlan, SpecialistAgentTarget } from "../core/agents/agent-contracts.js";
 import { skillCatalog } from "../core/skills/skill-catalog.js";
 import { describeSkillSource } from "../core/skills/skill-contracts.js";
@@ -371,12 +374,13 @@ async function runGuidedInstall(
    * with the previous answers intact, and only Escape on the first step cancels.
    */
   const choosePlan = async () => {
-    let step: "mode" | "targets" | "skills" | "preview" = "mode";
+    let step: "mode" | "targets" | "skills" | "mcp" | "preview" = "mode";
     let modeIndex = 0;
     let targets: readonly SkillAgent[] = [];
     let skills: ReadonlyArray<SkillCatalogEntry> = [];
     let targetAgents: readonly SkillAgent[] = available.map((detection) => detection.agent);
     let skillIds: readonly string[] | undefined;
+    let mcpIds: readonly string[] = mcpCatalog.map((entry) => entry.id);
 
     for (;;) {
       if (step === "mode") {
@@ -387,6 +391,7 @@ async function runGuidedInstall(
         if (mode === 0) {
           targets = available.map((detection) => detection.agent);
           skills = catalog.filter((entry) => targets.some((agent) => entry.compatibleAgents.includes(agent)));
+          mcpIds = mcpCatalog.map((entry) => entry.id);
           step = "preview";
         } else {
           step = "targets";
@@ -448,16 +453,39 @@ async function runGuidedInstall(
         }
         skills = picks.map((index) => entries[index]).filter((entry): entry is SkillCatalogEntry => entry !== undefined);
         skillIds = skills.map((entry) => entry.id);
+        step = "mcp";
+        continue;
+      }
+
+      if (step === "mcp") {
+        const entries = mcpCatalog.filter((entry) => targets.some((agent) => entry.supportedAgents.includes(agent)));
+        if (entries.length === 0) {
+          mcpIds = [];
+          step = "preview";
+          continue;
+        }
+        terminal.clear();
+        const picks = await terminal.multiSelect(
+          "Which MCP integrations should Nix install? (space to toggle, Enter continue)",
+          entries.map((entry) => `${entry.name} — ${entry.purpose}`),
+          "MCP INTEGRATIONS",
+          entries.map((entry, index) => (mcpIds.includes(entry.id) ? index : -1)).filter((index) => index >= 0)
+        );
+        if (picks === undefined) {
+          step = "skills";
+          continue;
+        }
+        mcpIds = picks.map((index) => entries[index]?.id).filter((id): id is string => id !== undefined);
         step = "preview";
         continue;
       }
 
-      const preview = await buildInstallPreview(root, statePath, targets, skills, skillOptions);
+      const preview = await buildInstallPreview(root, statePath, targets, skills, mcpIds, skillOptions);
       terminal.clear();
       terminal.report("INSTALL PREVIEW", preview.lines);
       const confirmed = await terminal.select("Apply these global changes?", ["Yes, install", "No, cancel"], "CONFIRM", undefined, 1);
       if (confirmed < 0) {
-        step = modeIndex === 0 ? "mode" : "skills";
+        step = modeIndex === 0 ? "mode" : "mcp";
         continue;
       }
       if (confirmed !== 0) {
@@ -473,10 +501,10 @@ async function runGuidedInstall(
     await pause(terminal, output, "INSTALL CANCELLED", [cancelNote]);
     return;
   }
-  const { effectiveState, skillPlans, agentPlans, runtimeNotes, targets } = selection;
+  const { effectiveState, skillPlans, agentPlans, mcpPlans, runtimeNotes, targets, agentModels } = selection;
 
   terminal.clear();
-  const progress = terminal.progress("INSTALLING", targets.length + skillPlans.length + agentPlans.length);
+  const progress = terminal.progress("INSTALLING", targets.length + skillPlans.length + agentPlans.length + mcpPlans.length);
   let completed = 0;
   let installedCount = 0;
   let skippedCount = 0;
@@ -520,6 +548,29 @@ async function runGuidedInstall(
     progress.update(completed, label);
   }
 
+  for (const { plan, agent, name } of mcpPlans) {
+    const label = `MCP ${name} [${agent}]`;
+    progress.update(completed, label);
+    try {
+      if (plan.action === "already-current") {
+        skippedCount += 1;
+      } else if (!plan.prerequisites.satisfied) {
+        // A missing runtime tool is not a failed install: the entry simply stays uninstalled.
+        skippedCount += 1;
+      } else if (plan.action === "install" || plan.action === "update") {
+        await installMcp(root, plan.id, agent);
+        installedCount += 1;
+      } else {
+        skippedCount += 1;
+        failures.push(`${label}: ${plan.action}${plan.reason ? ` — ${plan.reason}` : ""}`);
+      }
+    } catch (error) {
+      failures.push(`${label}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    completed += 1;
+    progress.update(completed, label);
+  }
+
   for (const { plan, agent } of agentPlans) {
     const label = `Agent ${plan.id} [${agent}]`;
     progress.update(completed, label);
@@ -527,7 +578,7 @@ async function runGuidedInstall(
       if (plan.action === "already-current") {
         skippedCount += 1;
       } else if (plan.action === "install" || plan.action === "update") {
-        await installSpecialistAgent(root, plan.id, agent, { catalog: specialistAgentCatalog });
+        await installSpecialistAgent(root, plan.id, agent, { catalog: specialistAgentCatalog, models: agentModels });
         installedCount += 1;
       } else {
         skippedCount += 1;
@@ -642,7 +693,10 @@ async function runAdvancedManagement(
     "Manage global skills",
     "Workflow commands",
     "Manage specialist agents",
+    "Configure agent models",
     "Manage MCP integrations",
+    "Tasks",
+    "Subagents",
     "Exit"
   ];
   while (true) {
@@ -721,7 +775,19 @@ async function runAdvancedManagement(
       continue;
     }
     if (choice === categories.length + 8) {
+      await manageAgentModels(terminal, output);
+      continue;
+    }
+    if (choice === categories.length + 9) {
       await manageMcpIntegrations(terminal, output);
+      continue;
+    }
+    if (choice === categories.length + 10) {
+      await showTasks(terminal, output);
+      continue;
+    }
+    if (choice === categories.length + 11) {
+      await showSubagents(terminal, output);
       continue;
     }
 
@@ -842,15 +908,18 @@ async function manageSpecialistAgents(terminal: TuiTerminal, output: NodeJS.Writ
     const action = await terminal.select("Choose an action", ["Preview and install/update", "Remove Nix-managed specialist", "Back"], entry.name.toUpperCase());
     if (action === 2 || action < 0) continue;
     if (action === 0) {
-      const plan = await previewSpecialistAgent(root, entry.id, agent, { catalog: specialistAgentCatalog });
+      const { config: modelConfig } = await loadNixConfig(root);
+      const models = modelConfig.agentModels ?? {};
+      const plan = await previewSpecialistAgent(root, entry.id, agent, { catalog: specialistAgentCatalog, models });
       terminal.report(entry.name.toUpperCase(), [
         `Preview: ${plan.action}`,
         `Target: ${shortenPath(plan.targetPath)}`,
+        `Model: ${models[`${agent}:${entry.id}`] ?? "(none assigned)"}`,
         ...(plan.reason ? [`Reason: ${plan.reason}`] : [])
       ]);
       if (plan.action === "install" || plan.action === "update") {
         if (await terminal.confirm("Apply this global change?")) {
-          const result = await installSpecialistAgent(root, entry.id, agent, { catalog: specialistAgentCatalog });
+          const result = await installSpecialistAgent(root, entry.id, agent, { catalog: specialistAgentCatalog, models });
           terminal.report(entry.name.toUpperCase(), [
             `${result.action}: ${entry.name} [${agent}]`,
             `Target: ${shortenPath(result.targetPath)}`
@@ -876,6 +945,132 @@ async function manageSpecialistAgents(terminal: TuiTerminal, output: NodeJS.Writ
     }
     await terminal.question("");
   }
+}
+
+async function manageAgentModels(terminal: TuiTerminal, output: NodeJS.WritableStream): Promise<void> {
+  const root = process.cwd();
+  const targets: ReadonlyArray<readonly [SpecialistAgentTarget, string]> = [["opencode", "OpenCode"], ["codex", "Codex"]];
+  for (;;) {
+    const choice = await terminal.select("Configure models for which runtime?", [...targets.map(([, label]) => label), "Back"], "AGENT MODELS");
+    if (choice < 0 || choice >= targets.length) return;
+    const target = targets[choice]![0];
+    await configureTargetModels(terminal, output, root, target);
+  }
+}
+
+async function configureTargetModels(
+  terminal: TuiTerminal,
+  output: NodeJS.WritableStream,
+  root: string,
+  target: SpecialistAgentTarget
+): Promise<void> {
+  const agents = specialistAgentCatalog.filter((entry) => entry.supportedAgents.includes(target));
+  for (;;) {
+    const { config } = await loadNixConfig(root);
+    const models = config.agentModels ?? {};
+    const statuses = await getSpecialistAgentStatus(root, { catalog: specialistAgentCatalog, models });
+    const list = await listModelsFor(target);
+    const lines = [
+      `Runtime: ${target}`,
+      `Models available: ${list.models.length > 0 ? `${list.models.length} from ${list.source}` : `none listed (source: ${list.source})`}`,
+      ""
+    ];
+    for (const entry of agents) {
+      const state = statuses.find((item) => item.id === entry.id)?.state ?? "absent";
+      lines.push(`${entry.name}: ${models[`${target}:${entry.id}`] ?? "no model assigned"} — ${state}`);
+    }
+    if (list.models.length === 0) {
+      lines.push("", `Nix will not invent a ${target} model id. Type one, or configure the runtime first.`);
+    }
+    terminal.report("AGENT MODELS", lines);
+
+    const index = await terminal.select(
+      "Choose an agent",
+      [...agents.map((entry) => `${entry.name} — ${models[`${target}:${entry.id}`] ?? "no model"}`), "Back"],
+      `${target.toUpperCase()} MODELS`
+    );
+    if (index < 0 || index >= agents.length) return;
+    const entry = agents[index]!;
+    const current = models[`${target}:${entry.id}`];
+    const options = [
+      ...list.models.map((model) => (model === current ? `${model}  (current)` : model)),
+      "Type a model id",
+      "Clear the model",
+      "Back"
+    ];
+    const chosen = await terminal.select(`Model for ${entry.name}`, options, `${target.toUpperCase()} MODELS`);
+    if (chosen < 0) continue;
+    const typedIndex = list.models.length;
+    const clearIndex = typedIndex + 1;
+    if (chosen === typedIndex + 2) continue;
+
+    let model: string | undefined;
+    if (chosen === typedIndex) {
+      const typed = (await terminal.question("Model id: ")).trim();
+      if (typed.length === 0) continue;
+      model = typed;
+    } else if (chosen === clearIndex) {
+      model = undefined;
+    } else {
+      model = list.models[chosen];
+    }
+
+    const next: Record<string, string> = { ...models };
+    if (model === undefined) delete next[`${target}:${entry.id}`];
+    else next[`${target}:${entry.id}`] = model;
+    await writeDefaultNixConfig(root, { agentModels: next });
+
+    const plan = await previewSpecialistAgent(root, entry.id, target, { catalog: specialistAgentCatalog, models: next });
+    if (plan.action === "install") {
+      await installSpecialistAgent(root, entry.id, target, { catalog: specialistAgentCatalog, models: next });
+    } else if (plan.action === "update") {
+      await updateSpecialistAgent(root, entry.id, target, { catalog: specialistAgentCatalog, models: next });
+    }
+    void output;
+  }
+}
+
+async function showTasks(terminal: TuiTerminal, output: NodeJS.WritableStream): Promise<void> {
+  const documents = await readProjectTasks(process.cwd());
+  const lines: string[] = [];
+  if (documents.length === 0) {
+    lines.push("No task document found under odd/tasks/.", "", "Nix writes one for large authorized work.");
+  }
+  for (const document of documents) {
+    const open = document.tasks.filter((task) => !task.done).length;
+    lines.push(`${document.title} (${document.file}) — ${document.tasks.length} task(s), ${open} open`);
+    for (const task of document.tasks) {
+      lines.push(`  ${task.done ? "[x]" : "[ ]"} ${task.id} ${task.specs} — ${task.status}`);
+    }
+    lines.push("");
+  }
+  terminal.report("TASKS", lines);
+  void output;
+  await terminal.wait();
+}
+
+async function showSubagents(terminal: TuiTerminal, output: NodeJS.WritableStream): Promise<void> {
+  const root = process.cwd();
+  const { config } = await loadNixConfig(root);
+  const models = config.agentModels ?? {};
+  const statuses = await getSpecialistAgentStatus(root, { catalog: specialistAgentCatalog, models });
+  const lines: string[] = [];
+  for (const target of ["opencode", "codex"] as const) {
+    const entries = specialistAgentCatalog.filter((entry) => entry.supportedAgents.includes(target));
+    const current = entries.filter((entry) =>
+      statuses.some((status) => status.id === entry.id && status.agent === target && status.state === "current")
+    );
+    lines.push(`${target}: ${current.length}/${entries.length} current`);
+    for (const entry of entries) {
+      const state = statuses.find((status) => status.id === entry.id && status.agent === target)?.state ?? "absent";
+      const assigned = models[`${target}:${entry.id}`];
+      lines.push(`  ${entry.id} — ${state}${assigned ? ` · ${assigned}` : ""}`);
+    }
+    lines.push("");
+  }
+  terminal.report("SUBAGENTS", lines);
+  void output;
+  await terminal.wait();
 }
 
 async function manageMcpIntegrations(terminal: TuiTerminal, output: NodeJS.WritableStream): Promise<void> {
@@ -1089,6 +1284,7 @@ async function buildInstallPreview(
   statePath: string,
   targets: readonly SkillAgent[],
   skills: ReadonlyArray<SkillCatalogEntry>,
+  mcpIds: readonly string[],
   skillOptions: SkillInstallerOptions | undefined
 ) {
   const state = await loadStackState(statePath);
@@ -1156,13 +1352,36 @@ async function buildInstallPreview(
     previewLines.push("");
   }
 
+  // MCP integrations are chosen explicitly: an entry the user unchecked is never written.
+  const mcpPlans: Array<{ readonly plan: Awaited<ReturnType<typeof previewMcp>>; readonly agent: SkillAgent; readonly name: string }> = [];
+  for (const entry of mcpCatalog) {
+    if (!mcpIds.includes(entry.id)) continue;
+    for (const agent of targets) {
+      if (!entry.supportedAgents.includes(agent)) continue;
+      const plan = await previewMcp(root, entry.id, agent);
+      mcpPlans.push({ plan, agent, name: entry.name });
+    }
+  }
+  for (const agent of targets) {
+    const group = mcpPlans.filter((item) => item.agent === agent);
+    if (group.length === 0) continue;
+    previewLines.push(`MCP [${agent}] → ${shortenPath(path.dirname(group[0]!.plan.targetPath))}`);
+    for (const item of group) {
+      const missing = item.plan.prerequisites.satisfied ? "" : ` (needs: ${item.plan.prerequisites.missing.join("; ")})`;
+      previewLines.push(`  ${item.plan.action}: ${item.name}${missing}${item.plan.reason ? ` — ${item.plan.reason}` : ""}`);
+    }
+    previewLines.push("");
+  }
+
   // Nix-owned specialist agents are part of the same one-step install: an orchestrator
   // that cannot invoke its specialists is only half installed.
+  const { config: nixConfig } = await loadNixConfig(root);
+  const agentModels = nixConfig.agentModels ?? {};
   const agentPlans: Array<{ readonly plan: SpecialistAgentPlan; readonly agent: SpecialistAgentTarget; readonly name: string }> = [];
   for (const agent of targets) {
     for (const entry of specialistAgentCatalog) {
       if (!entry.supportedAgents.includes(agent)) continue;
-      const plan = await previewSpecialistAgent(root, entry.id, agent, { catalog: specialistAgentCatalog });
+      const plan = await previewSpecialistAgent(root, entry.id, agent, { catalog: specialistAgentCatalog, models: agentModels });
       agentPlans.push({ plan, agent, name: entry.name });
     }
   }
@@ -1181,5 +1400,5 @@ async function buildInstallPreview(
     previewLines.push("");
   }
   previewLines.push("Unmanaged files are always preserved.");
-  return { lines: previewLines, effectiveState, skillPlans, agentPlans, runtimeNotes, targets };
+  return { lines: previewLines, effectiveState, skillPlans, agentPlans, mcpPlans, runtimeNotes, targets, agentModels };
 }

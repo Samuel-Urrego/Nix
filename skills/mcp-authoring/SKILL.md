@@ -3,7 +3,7 @@ name: mcp-authoring
 description: "Trigger: MCP server, MCP tool, tool schema, MCP adapter, resource, prompt. Design safe, testable MCP integrations and servers."
 license: Apache-2.0
 metadata:
-  author: "surre"
+  author: "Samuel Urrego"
   version: "1.0"
 ---
 

@@ -51,7 +51,7 @@ test("TUI installs a Nix specialist agent through preview and explicit confirmat
   const output = new PassThrough() as PassThrough & { isTTY: boolean };
   let transcript = "";
   output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
-  const answers = ["3", "10", "araxys", "1", "1", "yes", "", "b", "12", "4"];
+  const answers = ["3", "10", "araxys", "1", "1", "yes", "", "b", "15", "4"];
 
   try {
     await runTui({ output, ask: async (prompt) => {
@@ -89,7 +89,7 @@ test("TUI installs an optional MCP only after showing its network and target pre
   const output = new PassThrough();
   let transcript = "";
   output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
-  const answers = ["3", "2", "1", "1", "1", "yes", "", "b", "12", "4"];
+  const answers = ["3", "2", "1", "1", "1", "yes", "", "b", "15", "4"];
 
   try {
     await runTui({ output, ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; } });
@@ -123,7 +123,7 @@ test("TUI previews and installs Nix commands for the selected agent target", asy
   const output = new PassThrough();
   let transcript = "";
   output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
-  const answers = ["3", "9", "1", "yes", "", "12", "4"];
+  const answers = ["3", "9", "1", "yes", "", "15", "4"];
 
   try {
     const statePath = getStackStatePath();
@@ -166,7 +166,7 @@ test("TUI reports missing MCP prerequisites without offering to apply the change
   const output = new PassThrough();
   let transcript = "";
   output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
-  const answers = ["3", "2", "4", "1", "1", "", "b", "12", "4"];
+  const answers = ["3", "2", "4", "1", "1", "", "b", "15", "4"];
 
   try {
     await runTui({ output, ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; } });
@@ -199,7 +199,7 @@ test("declining agent, MCP, and command installs leaves all global targets uncha
   const output = new PassThrough();
   let transcript = "";
   output.on("data", (chunk: Buffer) => { transcript += chunk.toString("utf8"); });
-  const answers = ["3", "10", "1", "1", "1", "no", "", "b", "2", "1", "1", "1", "no", "", "b", "9", "1", "no", "", "12", "4"];
+  const answers = ["3", "10", "1", "1", "1", "no", "", "b", "2", "1", "1", "1", "no", "", "b", "9", "1", "no", "", "15", "4"];
 
   try {
     const statePath = getStackStatePath();
@@ -294,7 +294,7 @@ test("guided install detects targets and only writes the selected application", 
     try {
       await writeDetectedTargets(environment);
       const { output, transcript } = scriptedOutput();
-      const answers = ["1", "2", "1", "8", "1", "", "4"];
+      const answers = ["1", "2", "1", "8", "none", "1", "", "4"];
       await runTui({ output, ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; } });
 
       const command = await readFile(path.join(root, "config", "opencode", "commands", "araxys.md"), "utf8");
@@ -315,12 +315,101 @@ test("guided install detects targets and only writes the selected application", 
   });
 });
 
+test("the MCP step installs only the integrations the user picks", async () => {
+  await withTuiSandbox(async ({ root, environment, restore }) => {
+    try {
+      await writeDetectedTargets(environment);
+      const { output, transcript } = scriptedOutput();
+      // home, choose targets, all targets, no skills, first MCP (Playwright), confirm, report, quit
+      const answers = ["1", "2", "all", "none", "1", "1", "", "4"];
+      await runTui({
+        output,
+        ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; },
+        skillOptions: bundledSkillsOnly
+      });
+
+      const text = transcript();
+      assert.match(text, /╭ MCP INTEGRATIONS/);
+      assert.match(text, /MCP \[opencode\] →/);
+      assert.match(text, /install: Playwright MCP/);
+
+      const opencode = await readFile(path.join(root, "config", "opencode", "opencode.json"), "utf8");
+      assert.match(opencode, /playwright/);
+      assert.doesNotMatch(opencode, /context7|codegraph|engram/, "an unchecked MCP is never written");
+
+      const codex = await readFile(path.join(root, "codex", "config.toml"), "utf8");
+      assert.match(codex, /playwright/);
+      assert.doesNotMatch(codex, /context7|codegraph|engram/);
+    } finally {
+      await restore();
+    }
+  });
+});
+
+test("the model panel assigns a model, persists it, and applies it to the installed agent", async () => {
+  await withTuiSandbox(async ({ root, environment, restore }) => {
+    try {
+      await writeDetectedTargets(environment);
+      const { output, transcript } = scriptedOutput();
+      // home -> advanced -> configure models -> OpenCode -> Nix -> type an id -> back -> back -> exit -> quit
+      const answers = ["3", "11", "1", "1", "1", "openai/gpt-5-codex", "15", "3", "15", "4"];
+      await runTui({
+        output,
+        ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; },
+        skillOptions: bundledSkillsOnly
+      });
+
+      const text = transcript();
+      assert.match(text, /╭ AGENT MODELS/);
+      assert.match(text, /Runtime: opencode/);
+      assert.match(text, /no model assigned/);
+      assert.match(text, /will not invent a opencode model id/);
+
+      const config = JSON.parse(await readFile(path.join(root, "nix-home", "config.json"), "utf8")) as {
+        agentModels?: Record<string, string>;
+      };
+      assert.equal(config.agentModels?.["opencode:nix"], "openai/gpt-5-codex");
+
+      const agent = await readFile(path.join(root, "config", "opencode", "agents", "nix.md"), "utf8");
+      assert.match(agent, /^---\ndescription: ".*"\nmodel: openai\/gpt-5-codex\nmode: primary\n---/);
+    } finally {
+      await restore();
+    }
+  });
+});
+
+test("the advanced menu shows the project task list and the installed subagents", async () => {
+  await withTuiSandbox(async ({ environment, restore }) => {
+    try {
+      await writeDetectedTargets(environment);
+      const { output, transcript } = scriptedOutput();
+      // home -> advanced -> Tasks -> continue -> Subagents -> continue -> exit -> quit
+      const answers = ["3", "13", "", "14", "", "15", "4"];
+      await runTui({
+        output,
+        ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; },
+        skillOptions: bundledSkillsOnly
+      });
+
+      const text = transcript();
+      assert.match(text, /╭ TASKS/);
+      assert.match(text, /\[ \]|\[x\]/, "each task shows its state as a checkbox");
+      assert.match(text, /task\(s\)/);
+      assert.match(text, /╭ SUBAGENTS/);
+      assert.match(text, /opencode: \d+\/\d+ current/);
+      assert.match(text, /nix — /);
+    } finally {
+      await restore();
+    }
+  });
+});
+
 test("guided install writes nothing when the confirmation is declined", async () => {
   await withTuiSandbox(async ({ root, environment, restore }) => {
     try {
       await writeDetectedTargets(environment);
       const declined = scriptedOutput();
-      const answers = ["1", "2", "1", "8", "2", "", "4"];
+      const answers = ["1", "2", "1", "8", "none", "2", "", "4"];
       await runTui({ output: declined.output, ask: async (prompt) => { declined.output.write(prompt); return answers.shift() ?? ""; } });
       assert.match(declined.transcript(), /No files changed\./);
       await assert.rejects(readFile(path.join(root, "config", "opencode", "commands", "araxys.md"), "utf8"), { code: "ENOENT" });
@@ -457,7 +546,7 @@ test("Escape at the skills step returns to the targets step with the previous an
       await writeDetectedTargets(environment);
       const { output, transcript } = scriptedOutput();
       const answers = ["1", "2", "1", "", "4"];
-      const picks: Array<readonly number[] | undefined> = [[0], undefined, [0], [0]];
+      const picks: Array<readonly number[] | undefined> = [[0], undefined, [0], [0], []];
       await runTui({
         output,
         ask: async (prompt) => { output.write(prompt); return answers.shift() ?? ""; },
@@ -688,6 +777,8 @@ test("real keyboard selection drives the guided install end to end", async () =>
       await expect("Search: python");
       input.write(" ");
       await expect("› [x] Python and FastAPI");
+      input.write("\r");
+      await expect("Which MCP integrations should Nix install?");
       input.write("\r");
       await expect("Apply these global changes?");
       const confirmFrame = transcript.split("\u001b[H").pop() ?? "";

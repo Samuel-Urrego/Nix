@@ -6,7 +6,26 @@ import { findSkillEntry, skillCatalog } from "../../src/core/skills/skill-catalo
 test("skill catalog declares the requested skills with unique ids and install paths", () => {
   assert.deepEqual(
     skillCatalog.map((entry) => entry.id).sort(),
-    ["accessibility", "araxys-integration", "brag", "design-taste-frontend", "emil-design-eng", "grafana-k6", "python-fastapi", "rea", "security-audit"]
+    [
+      "accessibility",
+      "araxys-integration",
+      "brag",
+      "cpp-stack",
+      "csharp-stack",
+      "css-stack",
+      "design-taste-frontend",
+      "emil-design-eng",
+      "go-stack",
+      "grafana-k6",
+      "javascript-stack",
+      "python-fastapi",
+      "python-stack",
+      "rea",
+      "rust-stack",
+      "security-audit",
+      "startup-tank",
+      "typescript-stack"
+    ]
   );
   assert.equal(new Set(skillCatalog.map((entry) => entry.id)).size, skillCatalog.length);
   for (const entry of skillCatalog) {

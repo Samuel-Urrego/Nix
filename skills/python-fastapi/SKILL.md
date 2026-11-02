@@ -3,7 +3,7 @@ name: python-fastapi
 description: "Trigger: Python API, FastAPI, uv, async endpoint, Pydantic validation, pytest. Build and test maintainable Python HTTP APIs."
 license: Apache-2.0
 metadata:
-  author: "surre"
+  author: "Samuel Urrego"
   version: "1.0"
 ---
 

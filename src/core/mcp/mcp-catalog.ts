@@ -103,6 +103,27 @@ export const mcpCatalog: ReadonlyArray<McpCatalogEntry> = [
       command: ["npx", "-y", "rea-agents@6.8.0", "mcp"]
     },
     removal: "Removes only the Nix-managed server entry; REA package files, analysis data, and user configuration are preserved."
+  },
+  {
+    id: "context7",
+    name: "Context7 MCP",
+    purpose: "Up-to-date library documentation and code examples for any framework, fetched on demand.",
+    supportedAgents: ["opencode", "codex"],
+    scope: "global",
+    networkAccess: "first-run",
+    prerequisites: [
+      { kind: "command", name: "npx", description: "npx downloads and launches the pinned Context7 package" }
+    ],
+    credentials: {
+      required: false,
+      envVars: [],
+      note: "No credentials are required for public documentation. A Context7 API key only raises rate limits and is never written by Nix."
+    },
+    server: {
+      type: "local",
+      command: ["npx", "-y", "@upstash/context7-mcp"]
+    },
+    removal: "Removes only the Nix-managed server entry; unrelated MCP servers and settings are preserved."
   }
 ];
 

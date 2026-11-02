@@ -174,7 +174,8 @@ test("OpenCode command installation writes only available managed commands", asy
       ".config/opencode/commands/new-idea.md",
       ".config/opencode/commands/new-project.md",
       ".config/opencode/commands/araxys.md",
-      ".config/opencode/commands/security-audit.md"
+      ".config/opencode/commands/security-audit.md",
+      ".config/opencode/commands/new-startup.md"
     ]);
     assert.deepEqual(result.removed, []);
     assert.equal(result.skipped.some((item) => item.path.endsWith("refactor.md")), true);
@@ -281,7 +282,8 @@ test("Codex command installation writes and removes user skills", async () => {
       ".agents/skills/new-idea/SKILL.md",
       ".agents/skills/new-project/SKILL.md",
       ".agents/skills/nix-command-araxys/SKILL.md",
-      ".agents/skills/nix-command-security-audit/SKILL.md"
+      ".agents/skills/nix-command-security-audit/SKILL.md",
+      ".agents/skills/nix-command-new-startup/SKILL.md"
     ]);
     assert.equal(installed.skipped.some((item) => item.path.endsWith("refactor/SKILL.md")), true);
 

@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { scaffoldGlobalSkill } from "../../src/core/skills/skill-authoring.js";
+import { scaffoldGlobalSkill, scaffoldProjectAgentSkill } from "../../src/core/skills/skill-authoring.js";
 import { useProjectHome } from "../helpers/home.js";
 
 test("skill authoring scaffolds the normative global user-skill structure", async () => {
@@ -26,6 +26,29 @@ test("skill authoring scaffolds the normative global user-skill structure", asyn
     assert.equal(await readFile(path.join(result.targetPath, "assets", ".gitkeep"), "utf8"), "");
   } finally {
     restoreHome();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("project skill authoring writes the project's own skill under the agent directory", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "nix-project-skill-"));
+  try {
+    const codex = await scaffoldProjectAgentSkill(root, "checkout-flow", "codex");
+    assert.match(codex.targetPath, /\.agents[\\/]skills[\\/]checkout-flow$/);
+    const opencode = await scaffoldProjectAgentSkill(root, "checkout-flow", "opencode");
+    assert.match(opencode.targetPath, /\.opencode[\\/]skills[\\/]checkout-flow$/);
+
+    const skill = await readFile(path.join(codex.targetPath, "SKILL.md"), "utf8");
+    assert.match(skill, /^---\nname: checkout-flow\n/m);
+    assert.match(skill, /## Activation Contract/);
+    assert.match(skill, /## Project facts/);
+    assert.match(skill, /Test command:/);
+    assert.match(skill, /## Gotchas/);
+
+    // A project skill documents the repository, so it must never overwrite one.
+    await assert.rejects(scaffoldProjectAgentSkill(root, "checkout-flow", "codex"), /already exists/i);
+    await assert.rejects(scaffoldProjectAgentSkill(root, "Not Valid", "codex"), /invalid/i);
+  } finally {
     await rm(root, { recursive: true, force: true });
   }
 });

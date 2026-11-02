@@ -3,7 +3,7 @@ name: araxys-integration
 description: "Trigger: Araxys, AraxysShield, AraxysConfig, FastAPI security integration. Integrate the installed Araxys library into a consuming application only."
 license: Apache-2.0
 metadata:
-  author: "surre"
+  author: "Samuel Urrego"
   version: "1.0"
 ---
 
