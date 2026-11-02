@@ -7,6 +7,7 @@ import test from "node:test";
 
 import { runTui } from "../../src/cli/tui.js";
 import { getStackStatePath } from "../../src/core/config/stack-state.js";
+import { projectMetadata } from "../../src/core/system/project-metadata.js";
 import { skillCatalog } from "../../src/core/skills/skill-catalog.js";
 
 const bundledSkillsOnly = { catalog: skillCatalog.filter((entry) => entry.source.kind === "bundled") };
@@ -669,7 +670,7 @@ test("in-TUI update shows current and target versions, then reports the upgrade 
 
       assert.deepEqual(plans, ["npm install --global nix-ai-stack@latest", "npm install --global nix-ai-stack@latest"]);
       const text = transcript();
-      assert.match(text, /Current version: 0\.1\.2/);
+      assert.match(text, new RegExp(`Current version: ${projectMetadata.version.replace(/\./g, "\\.")}`));
       assert.match(text, /Target version: 9\.9\.9/);
       assert.match(text, /Upgrade finished\. Confirm it with: nix-ai --version/);
       assert.match(text, /Upgrade failed with exit code 2\./);
