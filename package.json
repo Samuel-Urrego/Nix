@@ -66,8 +66,5 @@
   },
   "allowScripts": {
     "@astudioplus/codegraph-mcp@0.21.0": true
-  },
-  "dependencies": {
-    "@opencode/client": "^2.2.1"
   }
 }
